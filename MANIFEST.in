@@ -1,0 +1,2 @@
+recursive-include src/apbase/_native *.so *.pyd *.dll *.dylib *.o
+global-exclude *.f90 *.f95 *.f03 *.f08 *.for *.f *.mod *.smod
