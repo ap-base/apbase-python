@@ -27,8 +27,7 @@ against each other, and automatically picks the mathematical model with the
 lowest error for each dataset — no manual intervention, always the most
 accurate map possible for the data you have.
 
-Critical numerical routines run as compiled native Fortran, exposed to
-Python via F2PY/NumPy/OpenMP. This isn't a generic geostatistics package:
+This isn't a generic geostatistics package:
 it's production-ready infrastructure for Agent and MCP pipelines that need
 low latency, reproducible results, and scale.
 
@@ -44,6 +43,10 @@ Given `x`, `y`, `z`, and a resolution, the package automatically runs:
 4. leave-one-out cross-validation between models;
 5. automatic selection of the method with the lowest RMSE;
 6. final interpolation of the map.
+
+<p align="center">
+  <img src="assets/apbase-map-pipeline.svg" alt="APBase intelligent Map pipeline: input data is spatially filtered, an automated variogram is fit, IDW, Kriging and CoKriging are cross-validated against each other, the model with the lowest RMSE is selected automatically, and the final interpolated map is produced." width="900"/>
+</p>
 
 ## Key features
 
@@ -74,27 +77,9 @@ agent. The package avoids full distance matrices and works with local
 neighborhoods, neighbor limits, and internal spatial structures to keep
 cost and memory under control on dense agricultural data.
 
-## Installation
+## Usage
 
-```bash
-pip install apbase
-```
-
-For the latest development version, install directly from the repository:
-
-```bash
-pip install git+https://github.com/ap-base/apbase-python.git
-```
-
-For local development:
-
-```bash
-git clone https://github.com/ap-base/apbase-python.git
-cd apbase-python
-pip install -e .
-```
-
-## Quick usage
+### Quick usage
 
 ```python
 import numpy as np
@@ -126,7 +111,7 @@ import apbase
 result = apbase.create_map(x, y, z, resolution=10.0)
 ```
 
-## Manual control
+### Manual control
 
 Use the low-level classes when you need to inspect intermediate steps
 or force a specific method.
@@ -155,7 +140,7 @@ idw = IDW().fit(
 z_idw = idw.interpolate(targets)
 ```
 
-## Data requirements
+### Data requirements
 
 - `x`, `y`, and `z` must be one-dimensional arrays.
 - For metric distance, use projected coordinates, such as UTM.
@@ -163,7 +148,7 @@ z_idw = idw.interpolate(targets)
 - `resolution`, `radius`, and `bounds` must use the same unit as `x` and `y`.
 - For best performance, use contiguous `float64` arrays.
 
-## Global configuration
+### Global configuration
 
 The number of OpenMP threads is a process-level setting. Set it before
 creating instances:
@@ -173,6 +158,33 @@ import apbase
 
 apbase.config["n_threads"] = 4
 ```
+
+## Installation
+
+```bash
+pip install apbase
+
+# For the latest development version, install directly from the repository:
+pip install git+https://github.com/ap-base/apbase-python.git
+```
+
+For local development:
+
+```bash
+git clone https://github.com/ap-base/apbase-python.git
+cd apbase-python
+pip install -e .
+```
+
+## Dependencies
+
+- Python >= 3.10
+- `numpy >= 2.0`
+- `pyproj >= 3.6, < 4.0`
+- `shapely >= 2.0, < 3.0`
+
+Precompiled Fortran/OpenMP native extensions ship with the wheel — no
+separate compiler or BLAS/LAPACK installation is required at runtime.
 
 ## APBase ecosystem
 
