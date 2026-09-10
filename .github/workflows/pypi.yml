@@ -1,0 +1,40 @@
+name: Publish to PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag neste repo cujas wheels serao publicadas (ex: 0.1.0)"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - name: Download wheels do release ${{ inputs.tag }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh release download "${{ inputs.tag }}" --repo ${{ github.repository }} --pattern '*.whl' --dir dist
+
+      - name: Sanity-check wheels baixadas
+        run: |
+          shopt -s nullglob
+          whls=(dist/*.whl)
+          if [ ${#whls[@]} -eq 0 ]; then
+            echo "::error::sem .whl no release ${{ inputs.tag }}" >&2
+            exit 1
+          fi
+          printf '%s\n' "${whls[@]}"
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
