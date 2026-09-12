@@ -7,7 +7,6 @@
 [![Parallel: OpenMP](https://img.shields.io/badge/parallel-OpenMP-orange.svg)](#high-performance)
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-yellow.svg)](pyproject.toml)
 [![CI](https://img.shields.io/github/actions/workflow/status/ap-base/apbase-python/ci.yml?branch=main&label=ci)](https://github.com/ap-base/apbase-python/actions/workflows/ci.yml)
-[![Build Wheels](https://img.shields.io/github/actions/workflow/status/ap-base/apbase-python/build.yml?branch=main&label=build%20wheels)](https://github.com/ap-base/apbase-python/actions/workflows/build.yml)
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)]()
 
 <p align="center">
