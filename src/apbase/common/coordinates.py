@@ -16,10 +16,25 @@ EARTH_RADIUS_M = 6_371_008.8
 
 @dataclass(frozen=True)
 class CoordinateTransform:
-    """Metadata needed to invert :func:`prepare_metric_xy`'s rebase/reprojection.
+    """Metadata needed to reuse or invert a metric coordinate transform.
 
     Obtained via ``prepare_metric_xy(..., return_transform=True)`` and passed to
     :func:`restore_original_xy` to recover coordinates in the original input metric.
+
+    Attributes
+    ----------
+    coordinate_system : str
+        Detected input coordinate system: ``"geographic"``, ``"utm"``, or
+        ``"projected"``.
+    geographic_mode : str or None
+        Projection mode used for geographic input: ``"local"``, ``"utm"``, or
+        ``None`` when no geographic projection was applied.
+    epsg : int or None
+        UTM EPSG code used for geographic ``"utm"`` conversion.
+    x0, y0 : float
+        Metric rebase origin subtracted from converted coordinates.
+    lon0, lat0 : float or None
+        Geographic anchor used by ``geographic_mode="local"``.
     """
 
     coordinate_system: str
@@ -32,6 +47,28 @@ class CoordinateTransform:
 
 
 def guess_xy_coordinate_system(x: np.ndarray, y: np.ndarray, assume_finite: bool = False) -> str:
+    """Guess whether x/y coordinates look geographic, UTM, or projected.
+
+    Parameters
+    ----------
+    x, y : numpy.ndarray
+        Coordinate arrays.
+    assume_finite : bool, default False
+        If ``True``, skip finite filtering and use direct min/max reductions.
+        Use only when callers already know both arrays contain finite values.
+
+    Returns
+    -------
+    str
+        ``"geographic"`` for lon/lat-like bounds, ``"utm"`` for UTM-like
+        easting/northing bounds, ``"projected"`` otherwise, or ``"invalid"``
+        when no finite coordinate pair is available and ``assume_finite`` is
+        ``False``.
+
+    Notes
+    -----
+    This is a fast bounds heuristic, not CRS detection from metadata.
+    """
     if assume_finite:
         xmin = float(x.min())
         xmax = float(x.max())
@@ -213,13 +250,13 @@ def prepare_metric_xy(
 
     Parameters
     ----------
-    x, y:
+    x, y : numpy.ndarray
         Source coordinates.
-    target_x, target_y:
+    target_x, target_y : numpy.ndarray
         Target coordinates. Pass the same arrays as ``x``/``y`` to reuse the
         source coordinates as targets; this is detected by identity, not by
         value, and avoids a redundant conversion.
-    geographic_mode:
+    geographic_mode : {"local", "utm"} or None, default None
         ``"local"``, ``"utm"``, or ``None`` (default). Only used when
         ``x``/``y`` are detected as geographic; ignored otherwise.
         ``None`` auto-detects: the input's own bounding-box diagonal is
@@ -231,7 +268,7 @@ def prepare_metric_xy(
         ``"utm"`` explicitly to force that projection regardless of extent;
         forcing ``"local"`` past the ceiling still raises, since the
         flat-plane approximation is not valid there.
-    return_transform:
+    return_transform : bool, default False
         When ``True``, append a :class:`CoordinateTransform` capturing this
         call's rebase (and reprojection, if any) as a 7th return value. Pass
         it to :func:`restore_original_xy` to recover coordinates in the
@@ -239,19 +276,26 @@ def prepare_metric_xy(
 
     Returns
     -------
-    x_metric, y_metric:
+    x_metric, y_metric : numpy.ndarray
         Rebased source coordinates.
-    target_x_metric, target_y_metric:
+    target_x_metric, target_y_metric : numpy.ndarray
         Rebased target coordinates.
-    coordinate_system:
+    coordinate_system : str
         One of ``"geographic"``, ``"utm"``, or ``"projected"`` (see
         :func:`guess_xy_coordinate_system`), describing the *detected input*
         system, not the output (output is always metric/rebased).
-    epsg:
+    epsg : int or None
         The UTM EPSG code used for conversion, or ``None`` when the input
         was not geographic or ``geographic_mode="local"`` was used.
-    transform:
+    transform : CoordinateTransform
         Only present when ``return_transform=True``. See above.
+
+    Raises
+    ------
+    ValidationError
+        If ``geographic_mode`` is invalid, source coordinates have no finite
+        pairs, local geographic conversion exceeds the configured extent
+        ceiling, or UTM conversion fails.
     """
     if geographic_mode is not None and geographic_mode not in {"local", "utm"}:
         raise ValidationError("geographic_mode must be 'local', 'utm', or None (auto-detect)")
@@ -364,19 +408,25 @@ def restore_original_xy(
 
     Parameters
     ----------
-    x, y:
+    x, y : numpy.ndarray
         Coordinates produced downstream of a ``prepare_metric_xy``-rebased pipeline
         (e.g. a grid or interpolation result), in the same rebased metric system.
-    transform:
+    transform : CoordinateTransform
         The :class:`CoordinateTransform` returned by
         ``prepare_metric_xy(..., return_transform=True)`` for the original conversion.
 
     Returns
     -------
-    x_original, y_original:
+    x_original, y_original : numpy.ndarray
         Coordinates in the original input system (lon/lat, real UTM, or the
-        original projected unit — matching what was passed into
+        original projected unit, matching what was passed into
         ``prepare_metric_xy``).
+
+    Raises
+    ------
+    ValidationError
+        If inverse UTM conversion is required but ``pyproj`` is unavailable or
+        the conversion fails.
     """
     mask = np.isfinite(x) & np.isfinite(y)
     x_out = np.full(x.shape, np.nan, dtype=np.float64)
@@ -432,16 +482,22 @@ def apply_metric_transform(
 
     Parameters
     ----------
-    x, y:
+    x, y : numpy.ndarray
         Coordinates in the same original system the transform was derived from.
-    transform:
+    transform : CoordinateTransform
         The :class:`CoordinateTransform` returned by
         ``prepare_metric_xy(..., return_transform=True)``.
 
     Returns
     -------
-    x_metric, y_metric:
+    x_metric, y_metric : numpy.ndarray
         Coordinates in the rebased metric system.
+
+    Raises
+    ------
+    ValidationError
+        If geographic UTM conversion is required but ``pyproj`` is unavailable
+        or conversion fails.
     """
     mask = np.isfinite(x) & np.isfinite(y)
     x_out = np.full(x.shape, np.nan, dtype=np.float64)
@@ -485,9 +541,9 @@ def reproject_geographic_xy(
 
     Parameters
     ----------
-    x, y:
+    x, y : numpy.ndarray
         Geographic (lon/lat) coordinates.
-    geographic_mode:
+    geographic_mode : {"local", "utm"} or None, default None
         ``"local"``, ``"utm"``, or ``None`` (default). ``None`` auto-detects
         the same way :func:`prepare_metric_xy` does: ``"local"`` below
         ``apbase.config["local_mode_extent_km_ceiling"]`` (50 km by default),
@@ -496,8 +552,14 @@ def reproject_geographic_xy(
 
     Returns
     -------
-    x_metric, y_metric:
+    x_metric, y_metric : numpy.ndarray
         Raw projected/local coordinates, not rebased.
+
+    Raises
+    ------
+    ValidationError
+        If ``geographic_mode`` is invalid, local conversion exceeds the
+        configured extent ceiling, or UTM conversion fails.
     """
     if geographic_mode is not None and geographic_mode not in {"local", "utm"}:
         raise ValidationError("geographic_mode must be 'local', 'utm', or None (auto-detect)")

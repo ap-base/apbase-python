@@ -48,11 +48,12 @@ _VALIDATORS: dict[str, Callable[[str, object], _ConfigValue]] = {
 class _Config:
     """Global settings consulted when a class is constructed without an explicit value.
 
-    Example
-    -------
+    Examples
+    --------
     >>> import apbase
+    >>> from apbase.kriging import Kriging
     >>> apbase.config["n_threads"] = 4
-    >>> apbase.Kriging().n_threads
+    >>> Kriging().n_threads
     4
     """
 
@@ -79,6 +80,20 @@ class _Config:
     def get(self, key: str, default: _ConfigValue) -> _ConfigValue: ...
 
     def get(self, key: str, default: _ConfigValue | None = None) -> _ConfigValue | None:
+        """Return a configured value or a default.
+
+        Parameters
+        ----------
+        key : str
+            Configuration key.
+        default : int, float, or None, default None
+            Value returned when ``key`` is unset.
+
+        Returns
+        -------
+        int, float, or None
+            Stored value for ``key`` or ``default``.
+        """
         return self._values.get(key, default)
 
     def __contains__(self, key: str) -> bool:
@@ -92,7 +107,16 @@ config = _Config()
 
 
 def resolve_n_threads() -> int:
-    """Resolve n_threads: apbase.config > APBASE_N_THREADS env var > 1."""
+    """Resolve the native thread count.
+
+    Precedence is ``apbase.config["n_threads"]``, then the
+    ``APBASE_N_THREADS`` environment variable, then ``1``.
+
+    Returns
+    -------
+    int
+        Positive OpenMP thread count.
+    """
     configured = config.get("n_threads")
     if configured is not None:
         return int(configured)
@@ -126,6 +150,11 @@ def resolve_variogram_profile() -> tuple[int, int, float]:
 
     Not used by :class:`~apbase.filtering.SpatialFilter`, which fits its own,
     intentionally different (lighter/faster) variogram profile internally.
+
+    Returns
+    -------
+    tuple[int, int, float]
+        ``(n_lags, max_pairs, max_distance)`` used by default variogram fits.
     """
     n_lags = config.get("variogram_n_lags", 50)
     max_pairs = config.get("variogram_max_pairs", 100_000)
@@ -143,6 +172,11 @@ def resolve_max_neighbors_ceiling() -> int:
     system solved per target). Defaults to ``500``; override with
     ``apbase.config["max_neighbors_ceiling"]``. Not enforced by ``IDW`` or
     ``SpatialFilter``, which have no ceiling today.
+
+    Returns
+    -------
+    int
+        Positive maximum allowed ``max_neighbors`` for capped routines.
     """
     return int(config.get("max_neighbors_ceiling", 500))
 
@@ -155,6 +189,11 @@ def resolve_variogram_max_pairs_ceiling() -> int:
     when ``max_pairs<=0``, is 1,000,000) -- so raising it is safe, just
     slower to fit. Defaults to ``200_000``; override with
     ``apbase.config["variogram_max_pairs_ceiling"]``.
+
+    Returns
+    -------
+    int
+        Positive maximum accepted explicit pair-sampling cap.
     """
     return int(config.get("variogram_max_pairs_ceiling", 200_000))
 
@@ -172,6 +211,11 @@ def resolve_local_mode_extent_km_ceiling() -> float:
     ``50.0`` km; override with
     ``apbase.config["local_mode_extent_km_ceiling"]`` (``0`` disables
     ``"local"`` entirely, forcing ``"utm"`` for any geographic input).
+
+    Returns
+    -------
+    float
+        Non-negative extent ceiling in kilometers.
     """
     return float(config.get("local_mode_extent_km_ceiling", 50.0))
 
@@ -189,6 +233,11 @@ def resolve_grid_max_points_ceiling() -> int:
     multi-billion-cell one. Defaults to ``100_000_000``; override with
     ``apbase.config["grid_max_points_ceiling"]`` for legitimate very large
     rasters.
+
+    Returns
+    -------
+    int
+        Positive candidate grid-point ceiling.
     """
     return int(config.get("grid_max_points_ceiling", 100_000_000))
 
@@ -203,6 +252,11 @@ def resolve_max_secondary_variables_ceiling() -> int:
     ``max_neighbors_ceiling`` already mitigates for neighbor counts.
     Defaults to ``20``; override with
     ``apbase.config["max_secondary_variables_ceiling"]``.
+
+    Returns
+    -------
+    int
+        Positive maximum number of secondary variables.
     """
     return int(config.get("max_secondary_variables_ceiling", 20))
 
@@ -216,6 +270,11 @@ def resolve_max_lmc_structures_ceiling() -> int:
     Defaults to ``5``; override with
     ``apbase.config["max_lmc_structures_ceiling"]``. Not enforced before
     Milestone 4 (LMC).
+
+    Returns
+    -------
+    int
+        Positive maximum number of LMC structures.
     """
     return int(config.get("max_lmc_structures_ceiling", 5))
 

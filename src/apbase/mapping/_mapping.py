@@ -4,14 +4,15 @@
 blocks (``SpatialFilter``, ``Grid``, ``Variogram``, ``cross_validate``,
 ``IDW``, ``Kriging``) behind one map-building pipeline. By default
 (``geographic_mode=None``), ``x``/``y`` are checked automatically
-(:func:`apbase.guess_xy_coordinate_system`): geographic (lon/lat) input is
-detected and converted internally via :func:`apbase.prepare_metric_xy`
+(:func:`apbase.common.coordinates.guess_xy_coordinate_system`): geographic
+(lon/lat) input is detected and converted internally via
+:func:`apbase.common.coordinates.prepare_metric_xy`
 -- itself auto-picking ``"local"`` vs ``"utm"`` from the input's own extent
 -- before the pipeline runs, and the result coordinates are converted back
 to the original input metric automatically via
-:func:`apbase.restore_original_xy`; already-metric/projected input is left
-untouched, exactly like ``SpatialFilter``/``Grid``/``IDW``/``Kriging``
-already assume. Callers never touch ``prepare_metric_xy``/
+:func:`apbase.common.coordinates.restore_original_xy`; already-metric/projected
+input is left untouched, exactly like ``SpatialFilter``/``Grid``/``IDW``/
+``Kriging`` already assume. Callers never touch ``prepare_metric_xy``/
 ``restore_original_xy`` directly. Passing ``geographic_mode="local"`` or
 ``"utm"`` explicitly forces that projection instead of auto-picking it.
 """
@@ -19,7 +20,7 @@ already assume. Callers never touch ``prepare_metric_xy``/
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal
 
 import numpy as np
 import shapely
@@ -46,7 +47,7 @@ from apbase.idw import IDW
 from apbase.kriging import Kriging
 from apbase.variogram import Variogram
 
-Bounds: TypeAlias = BaseGeometry | str | bytes
+type Bounds = BaseGeometry | str | bytes
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,27 @@ class MapResult:
     inside the boundary, no padding for cells outside it. Call
     :meth:`to_raster`/:meth:`to_array3d` to materialize a padded rectangular
     array, only when one is actually needed.
+
+    Attributes
+    ----------
+    x, y, z : numpy.ndarray
+        Compact target coordinates and interpolated values.
+    method : {"idw", "kriging"}
+        Interpolation method selected by cross-validation.
+    cross_validation : CrossValidationResult
+        Leave-one-out diagnostics used for method selection.
+    radius : float
+        Local search radius used by the final interpolation.
+    resolution : float
+        Output grid spacing.
+    n_source_points : int
+        Number of source points used after finite filtering and optional
+        spatial filtering.
+    filter_statistics : FilterStatistics or None
+        Local filtering diagnostics, or ``None`` when filtering was disabled.
+    coordinate_transform : CoordinateTransform or None
+        Transform used to recover output coordinates in the original input
+        coordinate system.
     """
 
     x: np.ndarray
@@ -83,6 +105,17 @@ class MapResult:
         in lon/lat -- this can raise ``ValueError`` for non-trivial extents.
         ``geographic_mode="local"`` uses a fixed affine transform instead and
         is always safe for ``to_raster``/``to_array3d``.
+
+        Returns
+        -------
+        tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]
+            Rectangular ``X``, ``Y``, and ``Z`` arrays. Masked-out cells are
+            ``NaN``.
+
+        Raises
+        ------
+        ValueError
+            If compact points cannot be represented as a regular masked grid.
         """
         spec = normalize_masked_regular_grid_spec(np.column_stack((self.x, self.y)))
         if spec is None:
@@ -107,7 +140,13 @@ class MapResult:
         return x_out, y_out, z_out
 
     def to_array3d(self) -> np.ndarray:
-        """Stack :meth:`to_raster` into a single ``(ny, nx, 3)`` array."""
+        """Stack :meth:`to_raster` into a single ``(ny, nx, 3)`` array.
+
+        Returns
+        -------
+        numpy.ndarray
+            Rectangular array whose last axis stores ``X``, ``Y``, and ``Z``.
+        """
         return np.dstack(self.to_raster())
 
 
@@ -137,11 +176,12 @@ def create_map(
     hull inferred from ``x``/``y`` when omitted).
 
     By default (``geographic_mode=None``), ``x``/``y`` are checked
-    automatically (:func:`apbase.guess_xy_coordinate_system`): already
-    projected/metric input is used as-is, with no CRS conversion -- the same
-    behavior as before. Geographic (lon/lat) input is detected and handled
-    automatically instead: it -- and ``bounds``, when given -- is converted
-    to metric coordinates internally (:func:`apbase.prepare_metric_xy`, which
+    automatically (:func:`apbase.common.coordinates.guess_xy_coordinate_system`):
+    already projected/metric input is used as-is, with no CRS conversion --
+    the same behavior as before. Geographic (lon/lat) input is detected and
+    handled automatically instead: it -- and ``bounds``, when given -- is
+    converted to metric coordinates internally
+    (:func:`apbase.common.coordinates.prepare_metric_xy`, which
     itself auto-picks ``"local"`` vs ``"utm"`` from the input's own extent
     against ``apbase.config["local_mode_extent_km_ceiling"]``) before the
     pipeline runs, and ``result.x``/``result.y`` are converted back to the
@@ -174,10 +214,11 @@ def create_map(
         input auto-picks ``"local"`` or ``"utm"``; already-metric input is
         unaffected. ``"local"`` or ``"utm"``: force that projection for
         detected geographic input, using the same semantics as
-        :func:`apbase.prepare_metric_xy`'s ``geographic_mode``. ``"local"`` is
-        always compatible with :meth:`MapResult.to_raster`; ``"utm"``'s
-        inverse reprojection is non-linear and can break exact grid
-        regularity for non-trivial extents -- see :meth:`MapResult.to_raster`.
+        :func:`apbase.common.coordinates.prepare_metric_xy`'s
+        ``geographic_mode``. ``"local"`` is always compatible with
+        :meth:`MapResult.to_raster`; ``"utm"``'s inverse reprojection is
+        non-linear and can break exact grid regularity for non-trivial
+        extents -- see :meth:`MapResult.to_raster`.
     power:
         IDW distance exponent, used only if IDW is selected.
     max_neighbors, min_neighbors:
@@ -193,6 +234,7 @@ def create_map(
     Returns
     -------
     MapResult
+        Compact map output plus cross-validation and filtering diagnostics.
 
     Examples
     --------
@@ -236,6 +278,31 @@ class Map:
         result_b = builder(x_b, y_b, z_b)
 
     For one-shot functional usage, call :func:`create_map`.
+
+    Parameters
+    ----------
+    x, y, z : array_like or None, default None
+        Optional source coordinates and values. When ``x`` is supplied, all
+        three must be supplied and the map is generated during construction.
+    resolution : float
+        Output grid spacing.
+    filter : bool, default True
+        Whether to apply :class:`~apbase.filtering.SpatialFilter`.
+    bounds : geometry, str, bytes, or None, default None
+        Optional Shapely geometry, WKT, or WKB interpolation domain.
+    geographic_mode : {"local", "utm"} or None, default None
+        Geographic projection mode passed through to :func:`create_map`.
+    power : float, default 2.0
+        IDW distance exponent.
+    max_neighbors, min_neighbors : int
+        Neighbor bounds shared by cross-validation and final interpolation.
+    max_cv_points : int, default 500
+        Maximum leave-one-out samples used by cross-validation.
+    seed : int or None, default None
+        Random seed for cross-validation sampling and model selection.
+    filter_kwargs : dict or None, default None
+        Extra keyword arguments forwarded to
+        :class:`~apbase.filtering.SpatialFilter`.
     """
 
     __slots__ = (
@@ -287,7 +354,18 @@ class Map:
             self.fit_generate(x, y, z)
 
     def fit_generate(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> MapResult:
-        """Run the full pipeline on ``x, y, z`` and store/return the result."""
+        """Run the full pipeline and store the generated map.
+
+        Parameters
+        ----------
+        x, y, z : array_like
+            Source coordinates and values.
+
+        Returns
+        -------
+        MapResult
+            Generated map result, also stored on :attr:`result`.
+        """
         self.result = _build_map(
             x,
             y,
@@ -306,7 +384,18 @@ class Map:
         return self.result
 
     def __call__(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> MapResult:
-        """Alias for :meth:`fit_generate`."""
+        """Run the full pipeline and return the generated map.
+
+        Parameters
+        ----------
+        x, y, z : array_like
+            Source coordinates and values.
+
+        Returns
+        -------
+        MapResult
+            Generated map result.
+        """
         return self.fit_generate(x, y, z)
 
 

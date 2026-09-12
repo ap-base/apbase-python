@@ -31,7 +31,17 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class MethodCrossValidation:
-    """Leave-one-out results for a single interpolation method."""
+    """Leave-one-out results for a single interpolation method.
+
+    Attributes
+    ----------
+    mae, rmse, r2 : float
+        Aggregate validation metrics computed over finite predictions.
+    n_valid : int
+        Number of finite predictions contributing to the metrics.
+    predicted, actual : numpy.ndarray
+        Per-sample predicted values and held-out actual values.
+    """
 
     mae: float
     rmse: float
@@ -43,7 +53,19 @@ class MethodCrossValidation:
 
 @dataclass(frozen=True)
 class CrossValidationResult:
-    """Leave-one-out cross-validation results for IDW and ordinary kriging."""
+    """Leave-one-out cross-validation results for IDW and ordinary kriging.
+
+    Attributes
+    ----------
+    idw, kriging : MethodCrossValidation
+        Per-method validation results.
+    n_samples : int
+        Number of held-out samples evaluated.
+    radius : float
+        Shared local search radius.
+    model_params : dict
+        Readable fitted variogram parameters.
+    """
 
     idw: MethodCrossValidation
     kriging: MethodCrossValidation
@@ -57,6 +79,17 @@ class CokrigingCrossValidationResult:
     """Leave-one-out cross-validation results for collocated/ICM/LMC cokriging.
 
     See :func:`cross_validate_cokriging`.
+
+    Attributes
+    ----------
+    by_method : dict[str, MethodCrossValidation]
+        Validation results keyed by method name.
+    n_samples : int
+        Number of held-out primary samples evaluated.
+    radius : float
+        Shared local search radius.
+    model_params : dict
+        Fitted cokriging parameters keyed by method name.
     """
 
     by_method: dict[str, MethodCrossValidation]
@@ -67,7 +100,27 @@ class CokrigingCrossValidationResult:
 
 @dataclass(frozen=True)
 class BestModelResult:
-    """Statistically-supported IDW-vs-kriging pick from a `CrossValidationResult`."""
+    """Statistically-supported IDW-vs-kriging pick.
+
+    Attributes
+    ----------
+    method : {"idw", "kriging"}
+        Selected method.
+    metric : {"rmse", "mae"}
+        Metric used for comparison.
+    idw_score, kriging_score : float
+        Paired scores over common finite held-out samples.
+    margin, relative_margin : float
+        Absolute and relative improvement of the selected method.
+    significant : bool
+        Whether the bootstrap confidence interval excludes zero.
+    confidence_level : float
+        Confidence level used for the interval.
+    ci_low, ci_high : float
+        Bounds of the idw-minus-kriging score difference.
+    n_common_valid : int
+        Number of paired finite samples used for comparison.
+    """
 
     method: Literal["idw", "kriging"]
     metric: Literal["rmse", "mae"]
@@ -89,6 +142,25 @@ class MultiMethodBestModelResult:
     Generalizes :class:`BestModelResult` to more than two methods (e.g.
     :attr:`CokrigingCrossValidationResult.by_method`) -- see
     :func:`select_best_model`.
+
+    Attributes
+    ----------
+    method, runner_up : str
+        Selected method and second-best method.
+    metric : {"rmse", "mae"}
+        Metric used for comparison.
+    scores : dict[str, float]
+        Paired scores over common finite held-out samples.
+    margin, relative_margin : float
+        Absolute and relative improvement of ``method`` over ``runner_up``.
+    significant : bool
+        Whether the bootstrap confidence interval excludes zero.
+    confidence_level : float
+        Confidence level used for the interval.
+    ci_low, ci_high : float
+        Bounds of the runner-up-minus-winner score difference.
+    n_common_valid : int
+        Number of paired finite samples used for comparison.
     """
 
     method: str
@@ -156,6 +228,15 @@ def cross_validate(
     CrossValidationResult
         MAE, RMSE, and R2 for both methods, plus per-sample predictions and
         the held-out actual values.
+
+    Raises
+    ------
+    ValueError
+        If input arrays have inconsistent size, too few finite rows, invalid
+        neighbor bounds, invalid radius, or invalid bootstrap/sample
+        configuration.
+    NativeExecutionError
+        If the native cross-validation kernel reports a failure status.
 
     Examples
     --------
@@ -285,6 +366,15 @@ def cross_validate_cokriging(
         (``"collocated"``, ``"icm"``, ``"lmc"``), plus per-sample
         predictions and the held-out actual values (identical across
         methods, evaluated on the same held-out samples).
+
+    Raises
+    ------
+    ValueError
+        If input arrays, neighbor bounds, secondary variables, radius, or
+        sample configuration are invalid.
+    NativeExecutionError
+        If a native cokriging fit or cross-validation kernel reports a
+        failure status.
 
     Examples
     --------
@@ -467,12 +557,19 @@ def select_best_model(
 
     Returns
     -------
-    BestModelResult
+    BestModelResult or MultiMethodBestModelResult
         The selected method plus the paired scores, margin, and bootstrap
-        confidence interval backing that choice. ``ci_low``/``ci_high``
-        bound the idw-minus-kriging score difference: a positive interval
-        means kriging scored better, a negative interval means idw scored
-        better.
+        confidence interval backing that choice. For IDW vs kriging,
+        ``ci_low``/``ci_high`` bound the idw-minus-kriging score difference:
+        a positive interval means kriging scored better, a negative interval
+        means idw scored better.
+
+    Raises
+    ------
+    ValueError
+        If the metric/bootstrap configuration is invalid, predicted/actual
+        arrays are inconsistent, fewer than two methods are supplied, or no
+        paired evidence exists for comparison.
 
     Notes
     -----

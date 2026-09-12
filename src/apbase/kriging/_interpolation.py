@@ -99,17 +99,36 @@ class Kriging:
 
     @property
     def radius(self) -> float | None:
-        """Local search radius, or ``None`` to derive it from the variogram range."""
+        """Local search radius.
+
+        Returns
+        -------
+        float or None
+            Explicit radius, or ``None`` to derive it from the variogram
+            range during interpolation.
+        """
         return self._radius
 
     @property
     def max_neighbors(self) -> int:
-        """Maximum source points used per target coordinate."""
+        """Maximum source points used per target coordinate.
+
+        Returns
+        -------
+        int
+            Upper bound on local neighbors.
+        """
         return self._max_neighbors
 
     @property
     def min_neighbors(self) -> int:
-        """Minimum source points required to produce a finite estimate."""
+        """Minimum source points required to produce a finite estimate.
+
+        Returns
+        -------
+        int
+            Lower bound on local neighbors.
+        """
         return self._min_neighbors
 
     @property
@@ -118,6 +137,11 @@ class Kriging:
 
         Resolved live from ``apbase.config["n_threads"]`` (see the class
         docstring) on every access -- not cached at construction time.
+
+        Returns
+        -------
+        int
+            Current OpenMP thread count.
         """
         return resolve_n_threads()
 
@@ -129,24 +153,55 @@ class Kriging:
         z: ArrayLike,
         **kwargs: Any,
     ) -> Kriging:
-        """Create a kriging interpolator and fit it from source data."""
+        """Create and fit a kriging interpolator.
+
+        Parameters
+        ----------
+        x, y, z : array_like
+            Source coordinates and values.
+        **kwargs
+            Keyword arguments forwarded to :class:`Kriging`.
+
+        Returns
+        -------
+        Kriging
+            Fitted kriging interpolator.
+        """
         return cls(**kwargs).fit(x, y, z)
 
     @property
     def is_fitted(self) -> bool:
-        """Whether source data and a variogram model are available."""
+        """Whether source data and a variogram model are available.
+
+        Returns
+        -------
+        bool
+            ``True`` after :meth:`fit` succeeds.
+        """
         return self._fitted
 
     @property
     def model_values(self) -> np.ndarray:
-        """Best fitted variogram model values."""
+        """Best fitted variogram model values.
+
+        Returns
+        -------
+        numpy.ndarray
+            Native model vector used by the kriging kernel.
+        """
         self._require_fitted()
         assert self._model_values is not None
         return self._model_values
 
     @property
     def model_params(self) -> dict[str, float | int | str]:
-        """Readable parameters for the selected variogram model."""
+        """Readable parameters for the selected variogram model.
+
+        Returns
+        -------
+        dict
+            Model id/name, nugget, partial sill, sill, range, and SSE.
+        """
         self._require_fitted()
         assert self._model_params is not None
         return dict(self._model_params)
@@ -175,6 +230,12 @@ class Kriging:
         Kriging
             The fitted kriging interpolator. Rows where ``x``, ``y``, or ``z``
             are ``NaN`` or infinite are ignored.
+
+        Raises
+        ------
+        ValueError
+            If input arrays have inconsistent size or fewer than
+            ``min_neighbors`` finite rows.
 
         Examples
         --------
@@ -263,7 +324,18 @@ class Kriging:
         return estimates_array
 
     def predict(self, targets: Grid | ArrayLike) -> np.ndarray:
-        """Alias for :meth:`interpolate`."""
+        """Estimate values at target coordinates.
+
+        Parameters
+        ----------
+        targets : Grid or array_like
+            Target coordinates accepted by :meth:`interpolate`.
+
+        Returns
+        -------
+        numpy.ndarray
+            One kriging estimate per target coordinate.
+        """
         return self.interpolate(targets)
 
     def fit_interpolate(
@@ -273,14 +345,38 @@ class Kriging:
         z: ArrayLike,
         targets: Grid | ArrayLike,
     ) -> np.ndarray:
-        """Fit the interpolator and immediately estimate target values."""
+        """Fit the interpolator and immediately estimate target values.
+
+        Parameters
+        ----------
+        x, y, z : array_like
+            Source coordinates and values.
+        targets : Grid or array_like
+            Target coordinates accepted by :meth:`interpolate`.
+
+        Returns
+        -------
+        numpy.ndarray
+            One kriging estimate per target coordinate.
+        """
         return self.fit(x, y, z).interpolate(targets)
 
     def __call__(
         self,
         targets: Grid | ArrayLike,
     ) -> np.ndarray:
-        """Alias for :meth:`interpolate`."""
+        """Estimate values at target coordinates.
+
+        Parameters
+        ----------
+        targets : Grid or array_like
+            Target coordinates accepted by :meth:`interpolate`.
+
+        Returns
+        -------
+        numpy.ndarray
+            One kriging estimate per target coordinate.
+        """
         return self.interpolate(targets)
 
     def _require_fitted(self) -> None:

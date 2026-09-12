@@ -2,34 +2,35 @@
 
 [![Version](https://img.shields.io/badge/version-0.1.0-informational.svg)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg)](pyproject.toml)
+[![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](pyproject.toml)
 [![Kernel: Fortran](https://img.shields.io/badge/kernel-Fortran-734f96.svg)](#high-performance)
 [![Parallel: OpenMP](https://img.shields.io/badge/parallel-OpenMP-orange.svg)](#high-performance)
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-yellow.svg)](pyproject.toml)
-[![CI](https://github.com/LeonardoAgricola/projeto-base-apbase-process/actions/workflows/ci.yml/badge.svg)](https://github.com/LeonardoAgricola/projeto-base-apbase-process/actions/workflows/ci.yml)
-[![Build Wheels](https://github.com/LeonardoAgricola/projeto-base-apbase-process/actions/workflows/build.yml/badge.svg)](https://github.com/LeonardoAgricola/projeto-base-apbase-process/actions/workflows/build.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/ap-base/apbase-python/ci.yml?branch=main&label=ci)](https://github.com/ap-base/apbase-python/actions/workflows/ci.yml)
+[![Build Wheels](https://img.shields.io/github/actions/workflow/status/ap-base/apbase-python/build.yml?branch=main&label=build%20wheels)](https://github.com/ap-base/apbase-python/actions/workflows/build.yml)
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)]()
 
 <p align="center">
-  <img src="assets/logo_en.svg" alt="APBase — Python" width="660"/>
+  <img src="assets/main_en.png" alt="APBase — Python" width="660"/>
 </p>
 
-**The high-performance Fortran core for AI Agents and MCP servers in
+**APBase is an intelligent, high-performance map-generation package for
 precision agriculture.**
 
-APBase is the geospatial computation layer built to be consumed by AI
-Agents and MCP servers: it turns raw agricultural data — yield, soil,
-sensors — into reliable maps.
+It turns irregular field data — yield, soil, sensors, operations — into
+reliable maps without asking the user to hand-pick the math behind each run.
 
-**The real differentiator is the pipeline's intelligence.** APBase filters
-the data, fits the variogram, cross-validates IDW, kriging, and co-kriging
-against each other, and automatically picks the mathematical model with the
-lowest error for each dataset — no manual intervention, always the most
-accurate map possible for the data you have.
+The main idea is simple: APBase prepares the data, removes spatial noise,
+fits the variogram, cross-validates the candidate interpolation models, and
+uses the mathematical model with the lowest validation error for that
+dataset. In the high-level `Map` pipeline, the package currently chooses
+between IDW and local ordinary kriging; advanced co-kriging tools remain
+available from submodules when secondary variables are part of the workflow.
 
-This isn't a generic geostatistics package:
-it's production-ready infrastructure for Agent and MCP pipelines that need
-low latency, reproducible results, and scale.
+This is not a generic geostatistics toolbox. It is production infrastructure
+for Agent and MCP pipelines that need low latency, reproducible results, and
+maps with the smallest validation error APBase can obtain from the available
+models and data.
 
 ## What this package does
 
@@ -40,29 +41,26 @@ Given `x`, `y`, `z`, and a resolution, the package automatically runs:
 1. validation and filtering of the source points;
 2. removal of invalid data, global outliers, and local spatial outliers;
 3. fitting of an automated variogram;
-4. leave-one-out cross-validation between models;
-5. automatic selection of the method with the lowest RMSE;
+4. leave-one-out cross-validation between candidate interpolation models;
+5. automatic selection of the mathematical model with the lowest RMSE;
 6. final interpolation of the map.
 
 <p align="center">
-  <img src="assets/apbase-map-pipeline.svg" alt="APBase intelligent Map pipeline: input data is spatially filtered, an automated variogram is fit, IDW, Kriging and CoKriging are cross-validated against each other, the model with the lowest RMSE is selected automatically, and the final interpolated map is produced." width="900"/>
+  <img src="assets/apbase-map-pipeline.svg" alt="APBase intelligent Map pipeline: input data is spatially filtered, an automated variogram is fit, candidate interpolation models are cross-validated, the model with the lowest RMSE is selected automatically, and the final interpolated map is produced." width="900"/>
 </p>
 
-## Key features
+## Recommended API
 
-- **`Map`: high-performance automated pipeline for map creation.**
-- `SpatialFilter`: spatial filter with global IQR and local statistics.
-- `Grid`: regular grid generation within a boundary or concave hull.
-- `Variogram`: fitting and evaluation of spherical, exponential, and gaussian models.
-- `cross_validate`: leave-one-out comparison between IDW, kriging, and co-kriging.
-- `IDW`: local inverse-distance-weighted interpolation.
-- `Kriging`: local ordinary kriging with bounded neighborhoods.
-- `screen_secondary_variables`: statistical screening of candidate secondary
-  variables before co-kriging.
-- `CoKriging`: local co-kriging (collocated, ICM, LMC) using secondary
-  variables correlated with the primary one.
-- `prepare_metric_xy`: preparation of metric coordinates from lon/lat
-  or projected coordinates.
+The public top-level API is intentionally small:
+
+- **`apbase.Map`**: the recommended automated pipeline for creating maps.
+- **`apbase.create_map`**: functional shortcut for one-shot map generation.
+- **`apbase.config`**: runtime configuration, including OpenMP thread count.
+
+Lower-level tools such as spatial filters, grids, variograms, IDW, kriging,
+cross-validation, coordinate conversion, and co-kriging are still available
+from their submodules for advanced workflows. They are not the normal entry
+point for users who only need to create maps.
 
 ## High performance
 
@@ -97,7 +95,7 @@ result = Map(
     resolution=10.0,
 )(x, y, z)
 
-result.method                  # "idw" or "kriging"
+result.method                  # "idw" or "kriging", selected by validation error
 result.x, result.y, result.z   # compact points within the boundary
 
 X, Y, Z = result.to_raster()   # (ny, nx) arrays, NaN outside the boundary
@@ -113,8 +111,9 @@ result = apbase.create_map(x, y, z, resolution=10.0)
 
 ### Manual control
 
-Use the low-level classes when you need to inspect intermediate steps
-or force a specific method.
+The top-level namespace stays focused on map creation. Use lower-level
+classes from submodules when you need to inspect intermediate steps, force a
+specific method, or build an advanced workflow such as co-kriging.
 
 ```python
 from apbase.cross_validate import cross_validate
@@ -143,9 +142,12 @@ z_idw = idw.interpolate(targets)
 ### Data requirements
 
 - `x`, `y`, and `z` must be one-dimensional arrays.
-- For metric distance, use projected coordinates, such as UTM.
-- lon/lat coordinates must be converted before interpolating.
-- `resolution`, `radius`, and `bounds` must use the same unit as `x` and `y`.
+- Projected/metric coordinates, such as UTM, are used directly.
+- Geographic lon/lat input is detected by `Map`, converted internally to
+  metric coordinates for distance calculations, and restored in the output.
+- `resolution`, `radius`, and `bounds` are interpreted in the coordinate
+  system used by the pipeline. For geographic input, distance-based settings
+  such as `resolution` are metric.
 - For best performance, use contiguous `float64` arrays.
 
 ### Global configuration
@@ -178,7 +180,7 @@ pip install -e .
 
 ## Dependencies
 
-- Python >= 3.10
+- Python >= 3.12
 - `numpy >= 2.0`
 - `pyproj >= 3.6, < 4.0`
 - `shapely >= 2.0, < 3.0`
