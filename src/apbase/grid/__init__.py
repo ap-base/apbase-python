@@ -27,18 +27,29 @@ def create_point_grid(
 
     Parameters
     ----------
-    x, y:
+    x, y : array_like or None, default None
         One-dimensional source coordinates. Required only when ``boundary``
         is omitted, to infer one as a concave hull of the finite pairs.
-    resolution:
+    resolution : float
         Grid spacing in the same coordinate unit as ``x`` and ``y``.
-    boundary:
+    boundary : object or None, default None
         Optional Shapely geometry used as interpolation boundary. When given,
         ``x``/``y`` are not needed.
-    chunk_size:
+    chunk_size : int, default DEFAULT_CHUNK_SIZE
         Maximum number of candidate points tested per chunk.
-    hull_ratio:
+    hull_ratio : float, default DEFAULT_HULL_RATIO
         Ratio used by Shapely concave hull when ``boundary`` is omitted.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``(n_points, 2)`` generated target coordinates inside the boundary.
+
+    Raises
+    ------
+    ValueError
+        If ``boundary`` is omitted and ``x``/``y`` cannot infer a valid
+        boundary, or if the candidate grid is empty or too large.
     """
     return Grid(
         boundary=boundary,

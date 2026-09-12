@@ -39,6 +39,30 @@ def ordinary_kriging(
     ``Kriging`` directly when reusing the same fitted variogram across
     multiple ``interpolate`` calls, since this function always fits from
     scratch.
+
+    Parameters
+    ----------
+    x, y, z : array_like
+        Source coordinates and values.
+    targets : array_like
+        Target coordinates accepted by
+        :meth:`apbase.kriging.Kriging.interpolate`.
+    model_values : array_like or None, default None
+        Optional native variogram model vector. If omitted, a variogram is
+        fitted from ``x``, ``y``, and ``z``.
+    radius : float or None, default None
+        Local search radius. If ``None``, derive ``range / 3`` from the
+        selected variogram.
+    max_neighbors, min_neighbors : int
+        Neighbor bounds used by the local search.
+    return_diagnostics : bool, default False
+        If ``True``, return interpolation diagnostics with the estimates.
+
+    Returns
+    -------
+    numpy.ndarray or tuple[numpy.ndarray, dict]
+        Estimates only, or ``(estimates, diagnostics)`` when
+        ``return_diagnostics=True``.
     """
     kriging = Kriging(
         radius=radius,

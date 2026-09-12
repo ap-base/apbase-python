@@ -158,28 +158,69 @@ class CoKriging:
 
     @property
     def method(self) -> str:
+        """Cokriging method used by the fitted interpolator.
+
+        Returns
+        -------
+        str
+            One of ``"collocated"``, ``"icm"``, or ``"lmc"``.
+        """
         return self._method
 
     @property
     def radius(self) -> float | None:
+        """Local search radius for primary neighborhoods.
+
+        Returns
+        -------
+        float or None
+            Explicit radius, or ``None`` when the radius is derived from the
+            primary variogram range during interpolation.
+        """
         return self._radius
 
     @property
     def max_neighbors(self) -> int:
+        """Maximum primary neighbors used per target coordinate.
+
+        Returns
+        -------
+        int
+            Upper bound on local primary neighbors.
+        """
         return self._max_neighbors
 
     @property
     def min_neighbors(self) -> int:
+        """Minimum primary neighbors required for a finite estimate.
+
+        Returns
+        -------
+        int
+            Lower bound on local primary neighbors.
+        """
         return self._min_neighbors
 
     @property
     def n_structures(self) -> int:
-        """Number of nested LMC structures (S). Only meaningful for ``method="lmc"``."""
+        """Number of nested LMC structures.
+
+        Returns
+        -------
+        int
+            Structure count used only when ``method="lmc"``.
+        """
         return self._n_structures
 
     @property
     def n_threads(self) -> int:
-        """OpenMP thread count. Resolved live from ``apbase.config``."""
+        """OpenMP thread count used by native cokriging kernels.
+
+        Returns
+        -------
+        int
+            Current value resolved from ``apbase.config``.
+        """
         return resolve_n_threads()
 
     @classmethod
@@ -191,11 +232,33 @@ class CoKriging:
         secondaries: SecondaryInput,
         **kwargs: Any,
     ) -> CoKriging:
-        """Create a cokriging interpolator and fit it from source data."""
+        """Create and fit a cokriging interpolator.
+
+        Parameters
+        ----------
+        x0, y0, z0 : array_like
+            Primary variable source coordinates and values.
+        secondaries : mapping or sequence
+            Secondary variables accepted by :meth:`fit`.
+        **kwargs
+            Keyword arguments forwarded to :class:`CoKriging`.
+
+        Returns
+        -------
+        CoKriging
+            Fitted cokriging interpolator.
+        """
         return cls(**kwargs).fit(x0, y0, z0, secondaries)
 
     @property
     def is_fitted(self) -> bool:
+        """Whether a coregionalization model has been fitted.
+
+        Returns
+        -------
+        bool
+            ``True`` after :meth:`fit` succeeds.
+        """
         return self._fit is not None
 
     @property
@@ -208,6 +271,11 @@ class CoKriging:
         ``[model_id, structure_ranges, coefficient_matrices.ravel()]``.
         Flattened for a single-vector view in every case -- see
         :attr:`model_params` for the actual matrices.
+
+        Returns
+        -------
+        numpy.ndarray
+            Flattened native model vector for the fitted method.
         """
         self._require_fitted()
         if isinstance(self._fit, _CollocatedFit):
@@ -241,6 +309,12 @@ class CoKriging:
         has shape ``(n_structures, K+1, K+1)``, index 0 = nugget structure).
         Variable 0 of every matrix is the primary, 1..K follow
         ``secondary_names`` order.
+
+        Returns
+        -------
+        dict
+            Method-specific fitted parameters. Matrix-valued entries are
+            returned as ``numpy.ndarray`` without copying.
         """
         self._require_fitted()
         assert self._primary_model_params is not None
@@ -285,20 +359,28 @@ class CoKriging:
 
         Parameters
         ----------
-        x0, y0, z0:
+        x0, y0, z0 : array_like
             Primary variable source coordinates and values.
-        secondaries:
+        secondaries : mapping or sequence
             Mapping of name to ``(x, y, z)`` source arrays, or a sequence of
-            ``(x, y, z)`` tuples (named ``secondary_1``, ``secondary_2``, ...
-            in that case) -- e.g.
-            ``screen_secondary_variables(...).selected`` works directly here.
+            ``(x, y, z)`` tuples. Sequence inputs are named
+            ``"secondary_1"``, ``"secondary_2"``, and so on.
 
         Returns
         -------
         CoKriging
-            The fitted interpolator. Rows where any of ``x0``/``y0``/``z0``
-            (or a given secondary's own coordinates/values) are ``NaN`` or
-            infinite are ignored on their respective side.
+            Fitted interpolator. Rows where any primary or secondary
+            coordinate/value is ``NaN`` or infinite are ignored within that
+            variable.
+
+        Raises
+        ------
+        ValueError
+            If inputs have inconsistent sizes, too few finite primary points,
+            no usable secondary variables, invalid neighbor bounds, or
+            zero-variance variables.
+        NativeExecutionError
+            If the native cokriging fit reports a failure status.
         """
         x0_array = as_float64_1d(x0, "x0")
         y0_array = as_float64_1d(y0, "y0")
@@ -528,7 +610,18 @@ class CoKriging:
         return estimates
 
     def predict(self, targets: Grid | ArrayLike) -> np.ndarray:
-        """Alias for :meth:`interpolate`."""
+        """Estimate primary values at target coordinates.
+
+        Parameters
+        ----------
+        targets : Grid or array_like
+            Target coordinates accepted by :meth:`interpolate`.
+
+        Returns
+        -------
+        numpy.ndarray
+            One cokriging estimate per target coordinate.
+        """
         return self.interpolate(targets)
 
     def fit_interpolate(
@@ -539,11 +632,37 @@ class CoKriging:
         secondaries: SecondaryInput,
         targets: Grid | ArrayLike,
     ) -> np.ndarray:
-        """Fit the interpolator and immediately estimate target values."""
+        """Fit the interpolator and immediately estimate target values.
+
+        Parameters
+        ----------
+        x0, y0, z0 : array_like
+            Primary variable source coordinates and values.
+        secondaries : mapping or sequence
+            Secondary variables accepted by :meth:`fit`.
+        targets : Grid or array_like
+            Target coordinates accepted by :meth:`interpolate`.
+
+        Returns
+        -------
+        numpy.ndarray
+            One cokriging estimate per target coordinate.
+        """
         return self.fit(x0, y0, z0, secondaries).interpolate(targets)
 
     def __call__(self, targets: Grid | ArrayLike) -> np.ndarray:
-        """Alias for :meth:`interpolate`."""
+        """Estimate primary values at target coordinates.
+
+        Parameters
+        ----------
+        targets : Grid or array_like
+            Target coordinates accepted by :meth:`interpolate`.
+
+        Returns
+        -------
+        numpy.ndarray
+            One cokriging estimate per target coordinate.
+        """
         return self.interpolate(targets)
 
     def _require_fitted(self) -> None:
