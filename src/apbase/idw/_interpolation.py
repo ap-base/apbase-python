@@ -93,22 +93,47 @@ class IDW:
 
     @property
     def radius(self) -> float | None:
-        """Local search radius, or ``None`` to derive it from the variogram range."""
+        """Local search radius.
+
+        Returns
+        -------
+        float or None
+            Explicit radius, or ``None`` to derive it from the variogram
+            range during :meth:`fit`.
+        """
         return self._radius
 
     @property
     def power(self) -> float:
-        """Exponent applied to distance in the IDW weights."""
+        """Exponent applied to distance in the IDW weights.
+
+        Returns
+        -------
+        float
+            Positive distance exponent.
+        """
         return self._power
 
     @property
     def max_neighbors(self) -> int:
-        """Maximum source points used per target coordinate."""
+        """Maximum source points used per target coordinate.
+
+        Returns
+        -------
+        int
+            Upper bound on local neighbors.
+        """
         return self._max_neighbors
 
     @property
     def min_neighbors(self) -> int:
-        """Minimum source points required to produce a finite estimate."""
+        """Minimum source points required to produce a finite estimate.
+
+        Returns
+        -------
+        int
+            Lower bound on local neighbors.
+        """
         return self._min_neighbors
 
     @property
@@ -117,6 +142,11 @@ class IDW:
 
         Resolved live from ``apbase.config["n_threads"]`` (see the class
         docstring) on every access -- not cached at construction time.
+
+        Returns
+        -------
+        int
+            Current OpenMP thread count.
         """
         return resolve_n_threads()
 
@@ -128,17 +158,48 @@ class IDW:
         z: ArrayLike,
         **kwargs: Any,
     ) -> IDW:
-        """Create an IDW interpolator and fit it from source data."""
+        """Create and fit an IDW interpolator.
+
+        Parameters
+        ----------
+        x, y, z : array_like
+            Source coordinates and values.
+        **kwargs
+            Keyword arguments forwarded to :class:`IDW`.
+
+        Returns
+        -------
+        IDW
+            Fitted IDW interpolator.
+        """
         return cls(**kwargs).fit(x, y, z)
 
     @property
     def is_fitted(self) -> bool:
-        """Whether finite source data are available."""
+        """Whether finite source data are available.
+
+        Returns
+        -------
+        bool
+            ``True`` after :meth:`fit` succeeds.
+        """
         return self._fitted
 
     @property
     def model_params(self) -> dict[str, float | int | str]:
-        """Readable parameters for the variogram used by the default radius."""
+        """Readable parameters for the variogram used by the default radius.
+
+        Returns
+        -------
+        dict
+            Variogram parameters used to derive the implicit radius.
+
+        Raises
+        ------
+        ValueError
+            If the interpolator is not fitted or was fitted with an explicit
+            radius, so no variogram was estimated.
+        """
         self._require_fitted()
         if self._model_params is None:
             raise ValueError(
@@ -166,6 +227,12 @@ class IDW:
         IDW
             The fitted interpolator. Rows where ``x``, ``y``, or ``z`` are
             ``NaN`` or infinite are ignored.
+
+        Raises
+        ------
+        ValueError
+            If input arrays have inconsistent size or fewer than
+            ``min_neighbors`` finite rows.
 
         Examples
         --------
@@ -252,11 +319,33 @@ class IDW:
         return estimates_array
 
     def predict(self, targets: Grid | ArrayLike) -> np.ndarray:
-        """Alias for :meth:`interpolate`."""
+        """Estimate values at target coordinates.
+
+        Parameters
+        ----------
+        targets : Grid or array_like
+            Target coordinates accepted by :meth:`interpolate`.
+
+        Returns
+        -------
+        numpy.ndarray
+            One interpolated value per target coordinate.
+        """
         return self.interpolate(targets)
 
     def __call__(self, targets: Grid | ArrayLike) -> np.ndarray:
-        """Alias for :meth:`interpolate`."""
+        """Estimate values at target coordinates.
+
+        Parameters
+        ----------
+        targets : Grid or array_like
+            Target coordinates accepted by :meth:`interpolate`.
+
+        Returns
+        -------
+        numpy.ndarray
+            One interpolated value per target coordinate.
+        """
         return self.interpolate(targets)
 
     def _run_targets(
@@ -304,7 +393,6 @@ class IDW:
         self,
         model_params: dict[str, float | int | str] | None,
     ) -> float:
-    
         if self.radius is not None:
             return self.radius
 

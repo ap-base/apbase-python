@@ -24,7 +24,27 @@ def idw(
     max_neighbors: int = 40,
     min_neighbors: int = 3,
 ) -> np.ndarray:
-    """Fit IDW from source data and estimate ``targets`` values."""
+    """Fit IDW from source data and estimate target values.
+
+    Parameters
+    ----------
+    x, y, z : array_like
+        Source coordinates and values.
+    targets : array_like
+        Target coordinates accepted by :meth:`apbase.idw.IDW.interpolate`.
+    radius : float or None, default None
+        Local search radius. If ``None``, derive ``range / 3`` from a fitted
+        variogram.
+    power : float, default 2.0
+        IDW distance exponent.
+    max_neighbors, min_neighbors : int
+        Neighbor bounds used by the local search.
+
+    Returns
+    -------
+    numpy.ndarray
+        One interpolated value per target coordinate.
+    """
     return IDW(
         radius=radius,
         power=power,

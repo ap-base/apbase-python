@@ -11,7 +11,7 @@ from __future__ import annotations
 import warnings
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, TypeAlias
+from typing import Any
 
 import numpy as np
 import shapely
@@ -27,7 +27,7 @@ from apbase.common.coordinates import (
 )
 from apbase.config import resolve_grid_max_points_ceiling, resolve_n_threads
 
-Boundary: TypeAlias = BaseGeometry
+type Boundary = BaseGeometry
 
 DEFAULT_CHUNK_SIZE = 1_000_000
 DEFAULT_HULL_RATIO = 0.12
@@ -113,6 +113,18 @@ class Grid:
         ``boundary``. Use :meth:`from_wkt`, :meth:`from_wkb`, or pass
         ``boundary=`` directly instead when the domain is already known --
         source points are not needed in that case.
+
+        Parameters
+        ----------
+        x, y : array_like
+            Source coordinates used to infer the concave-hull boundary.
+        **kwargs
+            Keyword arguments forwarded to :class:`Grid`.
+
+        Returns
+        -------
+        Grid
+            Fitted grid.
         """
         return cls(**kwargs).fit(x, y)
 
@@ -122,6 +134,18 @@ class Grid:
 
         No source points are needed: the grid is generated directly from the
         parsed geometry.
+
+        Parameters
+        ----------
+        wkt : str
+            Boundary geometry encoded as WKT.
+        **kwargs
+            Keyword arguments forwarded to :class:`Grid`.
+
+        Returns
+        -------
+        Grid
+            Fitted grid.
         """
         return cls(boundary=shapely.from_wkt(wkt), **kwargs).fit()
 
@@ -131,23 +155,53 @@ class Grid:
 
         No source points are needed: the grid is generated directly from the
         parsed geometry.
+
+        Parameters
+        ----------
+        wkb : bytes
+            Boundary geometry encoded as WKB.
+        **kwargs
+            Keyword arguments forwarded to :class:`Grid`.
+
+        Returns
+        -------
+        Grid
+            Fitted grid.
         """
         return cls(boundary=shapely.from_wkb(wkb), **kwargs).fit()
 
     @property
     def is_fitted(self) -> bool:
-        """Whether the grid points have already been generated."""
+        """Whether the grid points have already been generated.
+
+        Returns
+        -------
+        bool
+            ``True`` after :meth:`fit` succeeds.
+        """
         return self._fitted
 
     @property
     def points(self) -> np.ndarray:
-        """Generated ``(n_points, 2)`` target coordinates."""
+        """Generated target coordinates.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``(n_points, 2)`` target coordinates inside the fitted boundary.
+        """
         points, _ = self._get_fitted_state()
         return points
 
     @property
     def fitted_boundary(self) -> Boundary:
-        """Prepared boundary used to keep target points inside the domain."""
+        """Prepared boundary used to keep target points inside the domain.
+
+        Returns
+        -------
+        shapely.Geometry
+            Buffered and prepared boundary used by point-in-boundary tests.
+        """
         _, boundary = self._get_fitted_state()
         return boundary
 
@@ -158,6 +212,11 @@ class Grid:
         Resolved live from ``apbase.config["n_threads"]`` (see the class
         docstring) on every access -- not cached at construction time, so it
         always reflects the current process-wide setting.
+
+        Returns
+        -------
+        int
+            Current thread count.
         """
         return resolve_n_threads()
 
@@ -174,6 +233,25 @@ class Grid:
         coordinates are assumed to already be in the target projected
         coordinate system, unless converted via ``coordinate_transform``/
         ``geographic_mode``.
+
+        Parameters
+        ----------
+        x, y : array_like or None, default None
+            Source coordinates used only when inferring a boundary or
+            reconciling a provided boundary against a coordinate transform.
+
+        Returns
+        -------
+        Grid
+            This grid with generated ``points`` and prepared
+            ``fitted_boundary``.
+
+        Raises
+        ------
+        ValueError
+            If no boundary can be inferred, the generated candidate grid is
+            empty, or the candidate grid exceeds
+            ``apbase.config["grid_max_points_ceiling"]``.
         """
         data_xy: tuple[np.ndarray, np.ndarray] | None = None
         if self.boundary is not None:
@@ -208,11 +286,33 @@ class Grid:
         return self
 
     def generate(self, x: ArrayLike | None = None, y: ArrayLike | None = None) -> np.ndarray:
-        """Fit the grid and return generated target coordinates."""
+        """Fit the grid and return generated target coordinates.
+
+        Parameters
+        ----------
+        x, y : array_like or None, default None
+            Source coordinates forwarded to :meth:`fit`.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``(n_points, 2)`` target coordinates inside the boundary.
+        """
         return self.fit(x, y).points
 
     def __call__(self, x: ArrayLike | None = None, y: ArrayLike | None = None) -> np.ndarray:
-        """Alias for :meth:`generate`."""
+        """Fit the grid and return generated target coordinates.
+
+        Parameters
+        ----------
+        x, y : array_like or None, default None
+            Source coordinates forwarded to :meth:`fit`.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``(n_points, 2)`` target coordinates inside the boundary.
+        """
         return self.generate(x, y)
 
     def _infer_boundary(self, x: np.ndarray, y: np.ndarray) -> Boundary:
@@ -277,7 +377,7 @@ class Grid:
                 "projected/metric). Grid.resolution is interpreted in the same unit "
                 "as x/y, so this mismatch likely means resolution and/or area are "
                 "wrong. Make sure boundary and x/y share the same CRS (see "
-                "apbase.prepare_metric_xy).",
+                "apbase.common.coordinates.prepare_metric_xy).",
                 UserWarning,
                 stacklevel=3,
             )

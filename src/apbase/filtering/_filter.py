@@ -34,7 +34,17 @@ FILTER_LEVELS = {
 
 
 class FilterStatistics(NamedTuple):
-    """Per-point local filtering statistics returned by :attr:`SpatialFilter.statistics`."""
+    """Per-point local filtering statistics.
+
+    Attributes
+    ----------
+    pct_diff : numpy.ndarray
+        Local percent-difference statistic per original input row.
+    local_z : numpy.ndarray
+        Local z-score per original input row.
+    local_prob : numpy.ndarray
+        Local probability statistic per original input row.
+    """
 
     pct_diff: np.ndarray
     local_z: np.ndarray
@@ -157,47 +167,103 @@ class SpatialFilter:
 
     @property
     def radius(self) -> float | None:
-        """Local search radius, or ``None`` to derive it from the variogram range."""
+        """Local search radius.
+
+        Returns
+        -------
+        float or None
+            Explicit radius, or ``None`` to derive it from a fitted variogram.
+        """
         return self._radius
 
     @property
     def filter_level(self) -> str:
-        """Filtering strictness: ``"light"``, ``"moderate"``, ``"strict"``, or ``"aggressive"``."""
+        """Filtering strictness.
+
+        Returns
+        -------
+        str
+            One of ``"light"``, ``"moderate"``, ``"strict"``, or
+            ``"aggressive"``.
+        """
         return self._filter_level
 
     @property
     def apply_global_iqr(self) -> bool:
-        """Whether global IQR outliers are removed before local filtering."""
+        """Whether global IQR outliers are removed before local filtering.
+
+        Returns
+        -------
+        bool
+            ``True`` when global IQR filtering is enabled.
+        """
         return self._apply_global_iqr
 
     @property
     def max_neighbors(self) -> int:
-        """Maximum local neighbors used per source point."""
+        """Maximum local neighbors used per source point.
+
+        Returns
+        -------
+        int
+            Local-neighborhood cap. ``0`` means every in-radius neighbor.
+        """
         return self._max_neighbors
 
     @property
     def candidate_fraction(self) -> float:
-        """Fraction of in-radius candidates given a chance at the local sample."""
+        """Fraction of in-radius candidates sampled locally.
+
+        Returns
+        -------
+        float
+            Candidate sampling fraction in ``(0, 1]``.
+        """
         return self._candidate_fraction
 
     @property
     def cell_factor(self) -> int:
-        """Spatial grid factor used by the native local kernel."""
+        """Spatial grid factor used by the native local kernel.
+
+        Returns
+        -------
+        int
+            Positive spatial-grid factor.
+        """
         return self._cell_factor
 
     @property
     def global_iqr_whisker(self) -> float:
-        """IQR whisker used by the optional global filter."""
+        """IQR whisker used by the optional global filter.
+
+        Returns
+        -------
+        float
+            Non-negative IQR whisker.
+        """
         return self._global_iqr_whisker
 
     @property
     def dedup_radius(self) -> float:
-        """Spatial duplicate-collapse radius used when building local neighborhoods."""
+        """Spatial duplicate-collapse radius.
+
+        Returns
+        -------
+        float
+            Non-negative distance threshold. ``0.0`` disables spatial
+            duplicate collapse.
+        """
         return self._dedup_radius
 
     @property
     def dedup_z_tol(self) -> float:
-        """Value-closeness gate paired with ``dedup_radius``."""
+        """Value-closeness gate paired with ``dedup_radius``.
+
+        Returns
+        -------
+        float
+            Non-negative value threshold.
+        """
         return self._dedup_z_tol
 
     @property
@@ -206,6 +272,11 @@ class SpatialFilter:
 
         Resolved live from ``apbase.config["n_threads"]`` (see the class
         docstring) on every access -- not cached at construction time.
+
+        Returns
+        -------
+        int
+            Current OpenMP thread count.
         """
         return resolve_n_threads()
 
@@ -217,17 +288,47 @@ class SpatialFilter:
         z: ArrayLike,
         **kwargs: Any,
     ) -> SpatialFilter:
-        """Create a spatial filter and run it on source data."""
+        """Create and fit a spatial filter.
+
+        Parameters
+        ----------
+        x, y, z : array_like
+            Source coordinates and values.
+        **kwargs
+            Keyword arguments forwarded to :class:`SpatialFilter`.
+
+        Returns
+        -------
+        SpatialFilter
+            Fitted spatial filter.
+        """
         return cls(**kwargs).fit(x, y, z)
 
     @property
     def is_fitted(self) -> bool:
-        """Whether source data and filtering outputs are available."""
+        """Whether source data and filtering outputs are available.
+
+        Returns
+        -------
+        bool
+            ``True`` after :meth:`fit` succeeds.
+        """
         return self._fitted
 
     @property
     def model_params(self) -> dict[str, float | int | str]:
-        """Readable parameters for the variogram used by the default radius."""
+        """Readable parameters for the variogram used by the default radius.
+
+        Returns
+        -------
+        dict
+            Variogram parameters used to derive the implicit radius.
+
+        Raises
+        ------
+        ValueError
+            If the filter is not fitted or was fitted with an explicit radius.
+        """
         self._require_fitted()
         if self._model_params is None:
             raise ValueError("SpatialFilter was fit with an explicit radius; no variogram model was fitted")
@@ -235,7 +336,13 @@ class SpatialFilter:
 
     @property
     def statistics(self) -> FilterStatistics:
-        """Local percent difference, z-score, and probability arrays."""
+        """Local percent difference, z-score, and probability arrays.
+
+        Returns
+        -------
+        FilterStatistics
+            Copies of the per-input-row local filtering diagnostics.
+        """
         self._require_fitted()
         assert self._pct_diff is not None
         assert self._local_z is not None
@@ -261,6 +368,14 @@ class SpatialFilter:
         SpatialFilter
             The fitted filter. Use :meth:`mask`, :meth:`filter`, or
             :attr:`statistics` to read results.
+
+        Raises
+        ------
+        ValueError
+            If input arrays have inconsistent size, no finite rows, no rows
+            after global filtering, or invalid radius.
+        NativeExecutionError
+            If a native filtering kernel reports a failure status.
 
         Examples
         --------
@@ -353,7 +468,14 @@ class SpatialFilter:
         return self
 
     def mask(self) -> np.ndarray:
-        """Return the boolean keep mask for the fitted source arrays."""
+        """Return the boolean keep mask for the fitted source arrays.
+
+        Returns
+        -------
+        numpy.ndarray
+            Boolean array aligned with the original input rows. ``True`` means
+            the row survived finite, global, and local filtering.
+        """
         self._require_fitted()
         assert self._keep_mask is not None
         return self._keep_mask.copy()
@@ -378,17 +500,50 @@ class SpatialFilter:
         return self._x[self._keep_mask], self._y[self._keep_mask], self._z[self._keep_mask]
 
     def fit_mask(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> np.ndarray:
-        """Fit the filter and return the boolean keep mask."""
+        """Fit the filter and return the boolean keep mask.
+
+        Parameters
+        ----------
+        x, y, z : array_like
+            Source coordinates and values.
+
+        Returns
+        -------
+        numpy.ndarray
+            Boolean keep mask aligned with the original input rows.
+        """
         return self.fit(x, y, z).mask()
 
     def fit_filter(
         self, x: ArrayLike, y: ArrayLike, z: ArrayLike
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Fit the filter and return filtered source arrays."""
+        """Fit the filter and return filtered source arrays.
+
+        Parameters
+        ----------
+        x, y, z : array_like
+            Source coordinates and values.
+
+        Returns
+        -------
+        tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]
+            Filtered source coordinates and values.
+        """
         return self.fit(x, y, z).filter()
 
     def __call__(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Alias for :meth:`fit_filter`."""
+        """Fit the filter and return filtered source arrays.
+
+        Parameters
+        ----------
+        x, y, z : array_like
+            Source coordinates and values.
+
+        Returns
+        -------
+        tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]
+            Filtered source coordinates and values.
+        """
         return self.fit_filter(x, y, z)
 
     def _resolve_radius(self, model_params: dict[str, float | int | str] | None) -> float:

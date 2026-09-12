@@ -11,6 +11,23 @@ from .exceptions import ValidationError
 
 @dataclass(frozen=True)
 class MaskedRegularGridSpec:
+    """Run-length encoded representation of a regular masked point grid.
+
+    Attributes
+    ----------
+    min_x, min_y : float
+        Lower-left coordinate of the full regular grid.
+    dx, dy : float
+        Grid spacing along x and y.
+    full_nx, full_ny : int
+        Shape of the full rectangular grid before masking.
+    row_indices, x_start_indices, counts : numpy.ndarray
+        Run-length encoded spans of valid cells. Each row stores a y-index,
+        the first x-index in that row, and the number of consecutive points.
+    point_count : int
+        Number of points represented by all spans.
+    """
+
     min_x: float
     min_y: float
     dx: float
@@ -24,6 +41,26 @@ class MaskedRegularGridSpec:
 
 
 def as_float64_1d(values: ArrayLike, name: str) -> np.ndarray:
+    """Convert input values to a contiguous one-dimensional ``float64`` array.
+
+    Parameters
+    ----------
+    values : array_like
+        Input values to coerce.
+    name : str
+        Human-readable parameter name used in validation errors.
+
+    Returns
+    -------
+    numpy.ndarray
+        C-contiguous one-dimensional ``float64`` array.
+
+    Raises
+    ------
+    ValidationError
+        If ``values`` cannot be converted to numeric values or is not
+        one-dimensional.
+    """
     try:
         array = np.asarray(values, dtype=np.float64)
     except (TypeError, ValueError):
@@ -35,14 +72,37 @@ def as_float64_1d(values: ArrayLike, name: str) -> np.ndarray:
 
 
 def finite_mask_xy(x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    """Boolean mask of positions where x and y are both finite."""
+    """Return rows where both x and y are finite.
+
+    Parameters
+    ----------
+    x, y : numpy.ndarray
+        One-dimensional coordinate arrays with matching length.
+
+    Returns
+    -------
+    numpy.ndarray
+        Boolean mask with ``True`` where both coordinates are finite.
+    """
     finite_mask = np.isfinite(x)
     finite_mask &= np.isfinite(y)
     return finite_mask
 
 
 def filter_finite_xy(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Return x, y filtered to rows where both are finite."""
+    """Filter coordinate arrays to finite x/y pairs.
+
+    Parameters
+    ----------
+    x, y : numpy.ndarray
+        One-dimensional coordinate arrays with matching length.
+
+    Returns
+    -------
+    tuple[numpy.ndarray, numpy.ndarray]
+        Contiguous x and y arrays containing only finite pairs. The original
+        arrays are returned unchanged when every row is finite.
+    """
     finite_mask = finite_mask_xy(x, y)
     if bool(np.all(finite_mask)):
         return x, y
@@ -53,7 +113,18 @@ def filter_finite_xy(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarr
 
 
 def validate_same_size_xy(x: np.ndarray, y: np.ndarray) -> None:
-    """Raise ValidationError unless x, y are non-empty and equal length."""
+    """Validate that x and y are non-empty arrays with identical length.
+
+    Parameters
+    ----------
+    x, y : numpy.ndarray
+        One-dimensional coordinate arrays.
+
+    Raises
+    ------
+    ValidationError
+        If the arrays are empty or have different sizes.
+    """
     if x.size == 0:
         raise ValidationError("x and y must contain at least one point")
     if x.size != y.size:
@@ -61,7 +132,18 @@ def validate_same_size_xy(x: np.ndarray, y: np.ndarray) -> None:
 
 
 def finite_mask_xyz(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
-    """Boolean mask of positions where x, y, and z are all finite."""
+    """Return rows where x, y, and z are all finite.
+
+    Parameters
+    ----------
+    x, y, z : numpy.ndarray
+        One-dimensional coordinate/value arrays with matching length.
+
+    Returns
+    -------
+    numpy.ndarray
+        Boolean mask with ``True`` where all three values are finite.
+    """
     finite_mask = np.isfinite(x)
     finite_mask &= np.isfinite(y)
     finite_mask &= np.isfinite(z)
@@ -71,7 +153,19 @@ def finite_mask_xyz(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
 def filter_finite_xyz(
     x: np.ndarray, y: np.ndarray, z: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return x, y, z filtered to rows where all three are finite."""
+    """Filter coordinate/value arrays to finite x/y/z rows.
+
+    Parameters
+    ----------
+    x, y, z : numpy.ndarray
+        One-dimensional coordinate/value arrays with matching length.
+
+    Returns
+    -------
+    tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]
+        Contiguous arrays containing only finite rows. The original arrays are
+        returned unchanged when every row is finite.
+    """
     finite_mask = finite_mask_xyz(x, y, z)
     if bool(np.all(finite_mask)):
         return x, y, z
@@ -83,7 +177,18 @@ def filter_finite_xyz(
 
 
 def validate_same_size_xyz(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> None:
-    """Raise ValidationError unless x, y, z are non-empty and equal length."""
+    """Validate that x, y, and z are non-empty arrays with identical length.
+
+    Parameters
+    ----------
+    x, y, z : numpy.ndarray
+        One-dimensional coordinate/value arrays.
+
+    Raises
+    ------
+    ValidationError
+        If the arrays are empty or have different sizes.
+    """
     if x.size == 0:
         raise ValidationError("x, y, and z must contain at least one point")
     if x.size != y.size or x.size != z.size:
@@ -91,6 +196,26 @@ def validate_same_size_xyz(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> None:
 
 
 def extract_target_xy(targets: object) -> tuple[np.ndarray, np.ndarray]:
+    """Extract target x/y coordinates from supported target containers.
+
+    Parameters
+    ----------
+    targets : object
+        Target coordinates as a GeoDataFrame-like object with ``geometry``, a
+        fitted :class:`~apbase.grid.Grid`, an ``(n, 2)`` array, a GeoSeries, or
+        a one-dimensional sequence of Shapely ``Point`` geometries.
+
+    Returns
+    -------
+    tuple[numpy.ndarray, numpy.ndarray]
+        Contiguous x and y coordinate arrays.
+
+    Raises
+    ------
+    ValidationError
+        If ``targets`` is empty or does not contain point coordinates in a
+        supported layout.
+    """
     if hasattr(targets, "geometry"):
         geometry = targets.geometry
         return (
@@ -142,6 +267,26 @@ def extract_target_xy(targets: object) -> tuple[np.ndarray, np.ndarray]:
 
 
 def normalize_masked_regular_grid_spec(grid: object) -> MaskedRegularGridSpec | None:
+    """Detect and encode a regular masked grid from point coordinates.
+
+    Parameters
+    ----------
+    grid : object
+        Candidate point grid, expected to be convertible to an ``(n, 2)``
+        numeric array in row-major grid order.
+
+    Returns
+    -------
+    MaskedRegularGridSpec or None
+        Run-length encoded regular-grid metadata, or ``None`` when the points
+        are empty, non-finite, irregularly spaced, or not arranged as regular
+        grid spans.
+
+    Notes
+    -----
+    The encoding is built without a dense boolean raster. Memory is linear in
+    the number of input points plus the number of contiguous spans.
+    """
     array = np.asarray(grid)
     if array.ndim != 2 or array.shape[1] != 2 or array.shape[0] == 0:
         return None

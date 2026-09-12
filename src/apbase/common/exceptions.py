@@ -44,7 +44,27 @@ def raise_status_error(
     status_errors: dict[int, type[NativeExecutionError]],
     fallback_message: str,
 ) -> NoReturn:
-    """Raise the exception mapped to a native status code, or a generic fallback."""
+    """Raise the exception mapped to a native status code.
+
+    Parameters
+    ----------
+    status : int
+        Status code returned by a native routine.
+    status_errors : dict[int, type[NativeExecutionError]]
+        Mapping from known status codes to concrete exception classes.
+    fallback_message : str
+        Message used when ``status`` is not present in ``status_errors``.
+
+    Returns
+    -------
+    NoReturn
+        This function always raises.
+
+    Raises
+    ------
+    NativeExecutionError
+        Always raised, either as a mapped subclass or as the generic fallback.
+    """
     error_cls = status_errors.get(status)
     if error_cls is not None:
         raise error_cls()

@@ -75,23 +75,59 @@ class CrossVariogram:
 
     @property
     def n_lags(self) -> int:
+        """Number of lag bins used by the native fitter.
+
+        Returns
+        -------
+        int
+            Lag bin count.
+        """
         return self._n_lags
 
     @property
     def max_pairs(self) -> int:
+        """Maximum sampled colocated point pairs.
+
+        Returns
+        -------
+        int
+            Pair sampling cap; ``0`` means all eligible pairs subject to the
+            native ceiling.
+        """
         return self._max_pairs
 
     @property
     def max_distance(self) -> float:
+        """Maximum pair distance considered by the fitter.
+
+        Returns
+        -------
+        float
+            Distance cutoff in coordinate units; ``0.0`` uses the native
+            default extent.
+        """
         return self._max_distance
 
     @property
     def max_colocation_dist(self) -> float | None:
+        """Maximum nearest-neighbor distance accepted for colocating samples.
+
+        Returns
+        -------
+        float or None
+            Distance tolerance, or ``None`` for exact coordinate coincidence.
+        """
         return self._max_colocation_dist
 
     @property
     def n_threads(self) -> int:
-        """Explicit OpenMP thread count. Resolved live from ``apbase.config``."""
+        """OpenMP thread count used by native cross-variogram routines.
+
+        Returns
+        -------
+        int
+            Current value resolved from ``apbase.config``.
+        """
         return resolve_n_threads()
 
     @classmethod
@@ -105,11 +141,33 @@ class CrossVariogram:
         zb: ArrayLike,
         **kwargs: Any,
     ) -> CrossVariogram:
-        """Create a cross-variogram and fit it from source data."""
+        """Create and fit a cross-variogram from source data.
+
+        Parameters
+        ----------
+        xa, ya, za : array_like
+            First variable coordinates and values.
+        xb, yb, zb : array_like
+            Second variable coordinates and values.
+        **kwargs
+            Keyword arguments forwarded to :class:`CrossVariogram`.
+
+        Returns
+        -------
+        CrossVariogram
+            Fitted cross-variogram.
+        """
         return cls(**kwargs).fit(xa, ya, za, xb, yb, zb)
 
     @property
     def is_fitted(self) -> bool:
+        """Whether a cross-variogram fit is available.
+
+        Returns
+        -------
+        bool
+            ``True`` after :meth:`fit` succeeds.
+        """
         return self._fitted
 
     @property
@@ -123,6 +181,11 @@ class CrossVariogram:
         turns out invalid for :attr:`model_params`/:meth:`evaluate` (e.g.
         ``range`` collapsing to 0) -- see :attr:`n_pairs` to check whether the
         colocated sample was even large enough to attempt a fit.
+
+        Returns
+        -------
+        numpy.ndarray
+            Native cross-variogram model vector.
         """
         self._require_fitted()
         assert self._model_values is not None
@@ -137,19 +200,36 @@ class CrossVariogram:
         bins). Callers that need to handle a degenerate fit without raising
         (like :func:`~apbase.cross_variogram.screen_secondary_variables`)
         should check :attr:`n_pairs` before reading this.
+
+        Returns
+        -------
+        dict
+            Model id/name, nugget, partial sill, sill, range, and SSE.
         """
         return self._as_variogram().model_params
 
     @property
     def rho(self) -> float:
-        """Pearson correlation over the paired (colocated) sample."""
+        """Pearson correlation over the paired colocated sample.
+
+        Returns
+        -------
+        float
+            Correlation coefficient.
+        """
         self._require_fitted()
         assert self._rho is not None
         return self._rho
 
     @property
     def n_pairs(self) -> int:
-        """Number of colocated pairs found by the nearest-neighbor join."""
+        """Number of colocated pairs found by the nearest-neighbor join.
+
+        Returns
+        -------
+        int
+            Count of paired finite samples.
+        """
         self._require_fitted()
         assert self._n_pairs is not None
         return self._n_pairs
@@ -165,6 +245,26 @@ class CrossVariogram:
     ) -> CrossVariogram:
         """Fit the cross-variogram model between ``a`` and ``b``.
 
+        Parameters
+        ----------
+        xa, ya, za : array_like
+            First variable coordinates and values.
+        xb, yb, zb : array_like
+            Second variable coordinates and values.
+
+        Returns
+        -------
+        CrossVariogram
+            Fitted cross-variogram. Non-finite rows are ignored separately on
+            each variable before colocated pairing.
+
+        Raises
+        ------
+        ValueError
+            If either variable has invalid sizes or no finite rows.
+
+        Notes
+        -----
         Rows where ``xa``/``ya``/``za`` (or ``xb``/``yb``/``zb``) are ``NaN`` or
         infinite are ignored on their respective side before pairing.
         """
@@ -206,11 +306,33 @@ class CrossVariogram:
         return self
 
     def evaluate(self, distance: ArrayLike) -> np.ndarray:
-        """Evaluate the fitted cross-semivariance at one or more distances."""
+        """Evaluate the fitted cross-semivariance at one or more distances.
+
+        Parameters
+        ----------
+        distance : array_like
+            Distances in the same coordinate units used during fitting.
+
+        Returns
+        -------
+        numpy.ndarray
+            Cross-semivariance values with the same shape as ``distance``.
+        """
         return self._as_variogram().evaluate(distance)
 
     def __call__(self, distance: ArrayLike) -> np.ndarray:
-        """Alias for :meth:`evaluate`."""
+        """Evaluate the fitted cross-semivariance.
+
+        Parameters
+        ----------
+        distance : array_like
+            Distances in the same coordinate units used during fitting.
+
+        Returns
+        -------
+        numpy.ndarray
+            Cross-semivariance values with the same shape as ``distance``.
+        """
         return self.evaluate(distance)
 
     def _as_variogram(self) -> Variogram:

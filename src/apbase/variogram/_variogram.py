@@ -83,17 +83,37 @@ class Variogram:
 
     @property
     def n_lags(self) -> int:
-        """Number of lag bins used by the native fitter."""
+        """Number of lag bins used by the native fitter.
+
+        Returns
+        -------
+        int
+            Lag bin count.
+        """
         return self._n_lags
 
     @property
     def max_pairs(self) -> int:
-        """Maximum sampled point pairs."""
+        """Maximum sampled point pairs.
+
+        Returns
+        -------
+        int
+            Pair sampling cap; ``0`` means every eligible pair subject to the
+            native ceiling.
+        """
         return self._max_pairs
 
     @property
     def max_distance(self) -> float:
-        """Maximum pair distance considered by the fitter."""
+        """Maximum pair distance considered by the fitter.
+
+        Returns
+        -------
+        float
+            Distance cutoff in coordinate units; ``0.0`` uses the native
+            default extent.
+        """
         return self._max_distance
 
     @property
@@ -102,6 +122,11 @@ class Variogram:
 
         Resolved live from ``apbase.config["n_threads"]`` (see the class
         docstring) on every access -- not cached at construction time.
+
+        Returns
+        -------
+        int
+            Current OpenMP thread count.
         """
         return resolve_n_threads()
 
@@ -113,38 +138,87 @@ class Variogram:
         z: ArrayLike,
         **kwargs: Any,
     ) -> Variogram:
-        """Create a variogram and fit it from source data."""
+        """Create and fit a variogram from source data.
+
+        Parameters
+        ----------
+        x, y, z : array_like
+            Source coordinates and values.
+        **kwargs
+            Keyword arguments forwarded to :class:`Variogram`.
+
+        Returns
+        -------
+        Variogram
+            Fitted variogram.
+        """
         return cls(**kwargs).fit(x, y, z)
 
     @classmethod
     def from_model(cls, model_values: ArrayLike) -> Variogram:
-        """Create a variogram from an existing native model vector."""
+        """Create a variogram from an existing native model vector.
+
+        Parameters
+        ----------
+        model_values : array_like
+            Native model vector with five values:
+            ``[model_id, nugget, partial_sill, range, sse]``.
+
+        Returns
+        -------
+        Variogram
+            Variogram instance backed by ``model_values``.
+        """
         variogram = cls()
         variogram.set_model(model_values)
         return variogram
 
     @property
     def is_fitted(self) -> bool:
-        """Whether a model is already available."""
+        """Whether a model is already available.
+
+        Returns
+        -------
+        bool
+            ``True`` after :meth:`fit` or :meth:`set_model` succeeds.
+        """
         return self._fitted
 
     @property
     def model_values(self) -> np.ndarray:
-        """Native model vector used by kriging and evaluation kernels."""
+        """Native model vector used by kriging and evaluation kernels.
+
+        Returns
+        -------
+        numpy.ndarray
+            Model vector ``[model_id, nugget, partial_sill, range, sse]``.
+        """
         self._require_fitted()
         assert self._model_values is not None
         return self._model_values
 
     @property
     def model_params(self) -> dict[str, float | int | str]:
-        """Readable parameters for the selected variogram model."""
+        """Readable parameters for the selected variogram model.
+
+        Returns
+        -------
+        dict
+            Model id/name, nugget, partial sill, sill, range, and SSE.
+        """
         self._require_fitted()
         assert self._model_params is not None
         return dict(self._model_params)
 
     @property
     def range(self) -> float:
-        """Selected model range."""
+        """Selected model range.
+
+        Returns
+        -------
+        float
+            Fitted variogram range in coordinate units.
+        """
         return float(self.model_params["range"])
 
     def fit(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> Variogram:
@@ -166,6 +240,13 @@ class Variogram:
         Variogram
             The fitted variogram. Rows where ``x``, ``y``, or ``z`` are
             ``NaN`` or infinite are ignored.
+
+        Raises
+        ------
+        ValueError
+            If input arrays have inconsistent size or no finite rows.
+        NativeExecutionError
+            If the native variogram fit reports a failure status.
 
         Examples
         --------
@@ -202,7 +283,24 @@ class Variogram:
         return self
 
     def set_model(self, model_values: ArrayLike) -> Variogram:
-        """Attach an existing native model vector and select its parameters."""
+        """Attach an existing native model vector and select its parameters.
+
+        Parameters
+        ----------
+        model_values : array_like
+            Native model vector with five values:
+            ``[model_id, nugget, partial_sill, range, sse]``.
+
+        Returns
+        -------
+        Variogram
+            This instance, marked as fitted.
+
+        Raises
+        ------
+        ValueError
+            If the model vector shape or contents are invalid.
+        """
         model_array = self._normalize_model_values(model_values)
         model_params = self._select_model_params(model_array)
         self._x = None
@@ -238,7 +336,18 @@ class Variogram:
         return gamma
 
     def __call__(self, distance: ArrayLike) -> np.ndarray:
-        """Alias for :meth:`evaluate`."""
+        """Evaluate semivariance for distances.
+
+        Parameters
+        ----------
+        distance : array_like
+            Distances in the same coordinate unit used during :meth:`fit`.
+
+        Returns
+        -------
+        numpy.ndarray
+            Semivariance values with the same shape as ``distance``.
+        """
         return self.evaluate(distance)
 
     def _require_fitted(self) -> None:
