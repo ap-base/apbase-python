@@ -1,4 +1,4 @@
-# APBase — Intelligent Map-Generation Pipeline
+# APbase — Intelligent Map-Generation Pipeline
 
 [![Version](https://img.shields.io/badge/version-0.1.0-informational.svg)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
@@ -10,16 +10,16 @@
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)]()
 
 <p align="center">
-  <img src="assets/main_en.png" alt="APBase — Python" width="660"/>
+  <img src="assets/main_en.png" alt="APbase — Python" width="660"/>
 </p>
 
-**APBase is an intelligent, high-performance map-generation package for
+**APbase is an intelligent, high-performance map-generation package for
 precision agriculture.**
 
 It turns irregular field data — yield, soil, sensors, operations — into
 reliable maps without asking the user to hand-pick the math behind each run.
 
-The main idea is simple: APBase prepares the data, removes spatial noise,
+The main idea is simple: APbase prepares the data, removes spatial noise,
 fits the variogram, cross-validates the candidate interpolation models, and
 uses the mathematical model with the lowest validation error for that
 dataset. In the high-level `Map` pipeline, the package currently chooses
@@ -28,7 +28,7 @@ available from submodules when secondary variables are part of the workflow.
 
 This is not a generic geostatistics toolbox. It is production infrastructure
 for Agent and MCP pipelines that need low latency, reproducible results, and
-maps with the smallest validation error APBase can obtain from the available
+maps with the smallest validation error APbase can obtain from the available
 models and data.
 
 ## What this package does
@@ -44,9 +44,7 @@ Given `x`, `y`, `z`, and a resolution, the package automatically runs:
 5. automatic selection of the mathematical model with the lowest RMSE;
 6. final interpolation of the map.
 
-<p align="center">
-  <img src="assets/apbase-map-pipeline.svg" alt="APBase intelligent Map pipeline: input data is spatially filtered, an automated variogram is fit, candidate interpolation models are cross-validated, the model with the lowest RMSE is selected automatically, and the final interpolated map is produced." width="900"/>
-</p>
+APbase intelligent Map pipeline: input data is spatially filtered, an automated variogram is fit, candidate interpolation models are cross-validated, the model with the lowest RMSE is selected automatically, and the final interpolated map is produced."
 
 ## Recommended API
 
@@ -63,11 +61,11 @@ point for users who only need to create maps.
 
 ## High performance
 
-APBase is built on a numerical kernel written in Fortran: the critical
+APbase is built on a numerical kernel written in Fortran: the critical
 routines run as precompiled native extensions, integrated with Python via
 F2PY, NumPy, and OpenMP.
 
-This is what makes APBase suitable for AI Agents and MCP servers:
+This is what makes APbase suitable for AI Agents and MCP servers:
 low-latency responses, predictable CPU cost, and deterministic results —
 without relying on Python loops or reimplementing geostatistics in every
 agent. The package avoids full distance matrices and works with local
@@ -187,9 +185,9 @@ pip install -e .
 Precompiled Fortran/OpenMP native extensions ship with the wheel — no
 separate compiler or BLAS/LAPACK installation is required at runtime.
 
-## APBase ecosystem
+## APbase ecosystem
 
-APBase's vision goes beyond this package: to be the numerical foundation
+APbase's vision goes beyond this package: to be the numerical foundation
 that AI Agents and MCP servers for precision agriculture query for data
 from farm machinery, sensors, soil, climate, operations, and remote sensing.
 
