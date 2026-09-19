@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "apbase"
 version = "0.1.0"
-description = "APbase geospatial filtering, variogram, kriging and IDW modules"
+description = "APBase geospatial filtering, variogram, kriging and IDW modules"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 classifiers = [

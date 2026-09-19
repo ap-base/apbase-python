@@ -1,4 +1,4 @@
-"""APbase: high-performance automatic map generation.
+"""APBase: high-performance automatic map generation.
 
 The public top-level API is intentionally small: use :class:`Map` or
 :func:`create_map` to create maps, and :data:`config` for process-wide
