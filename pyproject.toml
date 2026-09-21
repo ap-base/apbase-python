@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "apbase"
-version = "0.1.0"
+version = "0.1.1"
 description = "High-performance automated map-generation pipeline for precision agriculture"
 readme = "README.md"
 requires-python = ">=3.12"

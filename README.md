@@ -1,6 +1,6 @@
 # APbase
 
-[![Version](https://img.shields.io/badge/version-0.1.0-informational.svg)](pyproject.toml)
+[![Version](https://img.shields.io/badge/version-0.1.1-informational.svg)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](pyproject.toml)
 [![Kernel: Fortran](https://img.shields.io/badge/kernel-Fortran-734f96.svg)](#performance)
