@@ -8,7 +8,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "apbase"
 version = "0.1.0"
-description = "APbase geospatial filtering, variogram, kriging and IDW modules"
+description = "High-performance automated map-generation pipeline for precision agriculture"
+readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 classifiers = [
@@ -19,6 +20,11 @@ dependencies = [
   "pyproj>=3.6,<4.0",
   "shapely>=2.0,<3.0",
 ]
+
+[project.urls]
+Documentation = "https://apbase.io"
+Source = "https://github.com/ap-base/apbase-python"
+Issues = "https://github.com/ap-base/apbase-python/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
