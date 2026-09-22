@@ -11,9 +11,11 @@
   <img src="assets/main_en.png" alt="APbase Python" width="660"/>
 </p>
 
-APbase is a high-performance map-generation package for precision agriculture.
-It filters irregular field data, fits a variogram, validates IDW versus local
-ordinary kriging, selects the lower-RMSE model, and returns map-ready output.
+APbase is an intelligent mapping pipeline for irregular field data, including
+yield monitor, soil samples, and sensor grids. It automates the map workflow:
+filtering source data, handling geographic coordinates when needed, building
+the target grid, comparing interpolation methods, and selecting a ready-to-use
+map without requiring users to choose a mathematical model by hand.
 
 Full documentation: https://apbase.io
 
