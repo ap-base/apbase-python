@@ -51,8 +51,8 @@ def co_kriging(
         Optional pre-fitted coregionalization model vector, currently
         supported only for ``method="collocated"``.
     radius : float or None, default None
-        Local search radius. If ``None``, derive ``range / 3`` from the
-        primary variogram.
+        Local search radius. If ``None``, derive ``range`` from the
+        primary variogram (``range / 3`` with 10 000 or more points).
     max_neighbors, min_neighbors : int
         Primary neighbor bounds used by the local search.
 

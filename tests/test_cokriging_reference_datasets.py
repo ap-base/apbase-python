@@ -44,9 +44,9 @@ def _rmse(pred: np.ndarray, truth: np.ndarray) -> float:
 # published cokriging benchmark, with its own train/validation split.
 # ---------------------------------------------------------------------------
 
-# The default radius (range/3 from the auto-fit primary variogram, ~0.16 km)
-# starves most validation targets of the min_neighbors=3 required on this
-# dataset's clustered sampling (359 points over ~5x5 km); 1.5 km covers the
+# An explicit radius keeps every validation target supplied with the
+# min_neighbors=3 required on this dataset's clustered sampling (359 points
+# over ~5x5 km) whatever the variogram-derived default; 1.5 km covers the
 # whole extent with room to spare.
 _JURA_RADIUS = 1.5
 

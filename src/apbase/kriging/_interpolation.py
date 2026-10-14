@@ -14,7 +14,7 @@ from apbase.common.arrays import (
 from apbase.common.exceptions import KRIGING_STATUS_ERRORS, raise_status_error
 from apbase.common.validation import require_neighbor_bounds
 from apbase.config import resolve_max_neighbors_ceiling, resolve_n_threads, resolve_variogram_profile
-from apbase.variogram import Variogram
+from apbase.variogram import Variogram, search_radius
 
 from ._native import run_kriging
 
@@ -33,13 +33,14 @@ class Kriging:
     Parameters
     ----------
     radius:
-        Local search radius. If ``None``, kriging uses ``range / 3`` from
-        the selected variogram.
+        Local search radius. If ``None``, kriging uses ``range`` from the
+        selected variogram (``range / 3`` with 10 000 or more points).
     max_neighbors:
         Maximum source points used per target coordinate. Capped at
         ``apbase.config["max_neighbors_ceiling"]`` (default ``500``).
     min_neighbors:
-        Minimum source points required to produce a finite estimate.
+        Minimum sources within ``radius``; below it the ``max_neighbors``
+        nearest sources are used regardless of distance.
     model_values:
         Optional native variogram model vector with five values. If
         provided, ``fit`` uses it instead of fitting a variogram from
@@ -122,7 +123,7 @@ class Kriging:
 
     @property
     def min_neighbors(self) -> int:
-        """Minimum source points required to produce a finite estimate.
+        """Minimum sources within ``radius`` before the nearest-sources fallback.
 
         Returns
         -------
@@ -294,8 +295,8 @@ class Kriging:
         -------
         numpy.ndarray
             One-dimensional ``float64`` array with one kriging estimate per
-            target coordinate. Targets without enough valid neighbors are
-            returned as ``NaN``.
+            target coordinate. Targets with fewer than ``min_neighbors``
+            sources within ``radius`` use the ``max_neighbors`` nearest ones.
 
         Examples
         --------
@@ -305,7 +306,7 @@ class Kriging:
         x_array, y_array, z_array, model_array, model_params = self._get_fitted_state()
 
         target_x, target_y = extract_target_xy(targets)
-        radius_value = self._resolve_radius(model_params)
+        radius_value = self._resolve_radius(model_params, x_array.size)
         estimates_array, status = run_kriging(
             x_array,
             y_array,
@@ -397,11 +398,12 @@ class Kriging:
     def _resolve_radius(
         self,
         model_params: dict[str, float | int | str],
+        n_points: int,
     ) -> float:
         if self.radius is not None:
             return self.radius
 
-        radius_value = float(model_params["range"]) / 3.0
+        radius_value = search_radius(model_params, n_points)
         if not np.isfinite(radius_value) or radius_value <= 0.0:
             raise ValueError("radius must be finite and greater than zero")
         return radius_value

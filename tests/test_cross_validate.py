@@ -130,10 +130,9 @@ def test_cross_validate_matches_reference_loocv() -> None:
     assert np.isclose(result.kriging.r2, expected_krig_r2, rtol=1e-6)
 
 
-def test_cross_validate_respects_min_neighbors_nan() -> None:
+def test_cross_validate_uses_nearest_sources_below_min_neighbors() -> None:
     # Two isolated points far from everything else: with a small radius and
-    # min_neighbors=2, every point (including the isolated pair) should end
-    # up with < min_neighbors neighbors in at least some folds.
+    # min_neighbors=2, the isolated pair ends up below min_neighbors.
     x = np.ascontiguousarray([0.0, 1.0, 2.0, 1000.0, 1001.0])
     y = np.ascontiguousarray([0.0, 0.0, 0.0, 0.0, 0.0])
     z = np.ascontiguousarray([1.0, 2.0, 3.0, 4.0, 5.0])
@@ -147,13 +146,19 @@ def test_cross_validate_respects_min_neighbors_nan() -> None:
     )
 
     # The two far points (indices 3, 4) only have each other within radius=5,
-    # so leave-one-out drops each below min_neighbors=2 -> NaN prediction.
-    assert np.isnan(result.idw.predicted[3])
-    assert np.isnan(result.idw.predicted[4])
-    assert np.isnan(result.kriging.predicted[3])
-    assert np.isnan(result.kriging.predicted[4])
-    assert result.idw.n_valid == 3
-    assert result.kriging.n_valid == 3
+    # below min_neighbors=2, so each falls back to its max_neighbors=4 nearest
+    # other sources (here all four).
+    for index in (3, 4):
+        others = np.flatnonzero(np.arange(x.size) != index)
+        weights = 1.0 / (x[others] - x[index]) ** 2
+        expected_idw = float(np.sum(weights * z[others]) / np.sum(weights))
+        expected_krig = _reference_kriging_point(
+            x[others], y[others], z[others], x[index], y[index], 0.5, 4.0, 30.0
+        )
+        assert np.isclose(result.idw.predicted[index], expected_idw, rtol=1e-10, atol=0.0)
+        assert np.isclose(result.kriging.predicted[index], expected_krig, rtol=1e-8, atol=0.0)
+    assert result.idw.n_valid == 5
+    assert result.kriging.n_valid == 5
 
 
 def test_cross_validate_subsamples_to_max_points() -> None:
@@ -469,6 +474,20 @@ def test_cross_validate_cokriging_metrics_match_predictions() -> None:
         assert np.array_equal(mcv.actual, z0)
 
 
+def test_cross_validate_cokriging_uses_nearest_sources_below_min_neighbors() -> None:
+    # With a 5-unit radius most samples have fewer than min_neighbors=3 other
+    # primaries in reach; every method still predicts all of them.
+    x0, y0, z0, zu = _cokriging_loo_fixture()
+    result = cross_validate_cokriging(
+        x0, y0, z0, {"secondary": (x0, y0, zu)}, radius=5.0, max_neighbors=12, min_neighbors=3
+    )
+
+    assert len(result.by_method) == 3
+    for name, mcv in result.by_method.items():
+        assert mcv.n_valid == x0.size, name
+        assert np.all(np.isfinite(mcv.predicted)), name
+
+
 def test_select_best_model_generalized_picks_correct_winner() -> None:
     actual = np.ascontiguousarray([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
     methods = {
@@ -533,7 +552,7 @@ def test_select_best_model_legacy_two_method_call_unchanged() -> None:
 
 if __name__ == "__main__":
     test_cross_validate_matches_reference_loocv()
-    test_cross_validate_respects_min_neighbors_nan()
+    test_cross_validate_uses_nearest_sources_below_min_neighbors()
     test_cross_validate_subsamples_to_max_points()
     test_cross_validate_uses_all_points_below_max_points()
     test_cross_validate_is_fast_for_500_points()

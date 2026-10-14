@@ -17,6 +17,21 @@ VARIOGRAM_NAMES = {
     3: "gaussian",
 }
 
+#: Below this many source points the default search radius is the full range.
+FULL_RANGE_RADIUS_MAX_POINTS = 10_000
+
+
+def search_radius(model_params: dict[str, float | int | str], n_points: int) -> float:
+    """Default local search radius for ``n_points`` source points.
+
+    ``range`` when there are fewer than ``FULL_RANGE_RADIUS_MAX_POINTS``
+    points, ``range / 3`` otherwise.
+    """
+    range_value = float(model_params["range"])
+    if n_points < FULL_RANGE_RADIUS_MAX_POINTS:
+        return range_value
+    return range_value / 3.0
+
 
 class Variogram:
     """Fit, select, and evaluate a native variogram model.

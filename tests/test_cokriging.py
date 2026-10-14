@@ -156,6 +156,37 @@ def test_collocated_cokriging_k1_matches_reference() -> None:
     assert np.allclose(result, expected, rtol=1e-6, atol=1e-6)
 
 
+def test_collocated_cokriging_uses_nearest_primaries_and_drops_far_secondaries() -> None:
+    # (5, 5) has 2 primaries within the radius, below min_neighbors=3, so it
+    # uses all 6 nearest and keeps its secondary; (100, 100) has nothing
+    # within the radius, so the secondary is left out (ordinary kriging).
+    x0 = np.ascontiguousarray([0.0, 10.0, 0.0, 10.0, 4.0, 7.0])
+    y0 = np.ascontiguousarray([0.0, 0.0, 10.0, 10.0, 6.0, 2.0])
+    z0 = np.ascontiguousarray([5.0, 7.0, 8.0, 10.0, 6.5, 6.0])
+    xu = np.ascontiguousarray([1.0, 9.0, 1.0, 9.0, 5.0, 6.0])
+    yu = np.ascontiguousarray([1.0, 1.0, 9.0, 9.0, 5.0, 3.0])
+    zu = np.ascontiguousarray([10.0, 14.0, 16.0, 20.0, 13.0, 12.0])
+    nugget, partial_sill, model_range, rho = 0.5, 4.0, 30.0, 0.9
+
+    ck = CoKriging(
+        method="collocated",
+        model_values=_model_values(nugget, partial_sill, model_range, [rho]),
+        radius=5.0,
+        max_neighbors=10,
+        min_neighbors=3,
+    ).fit(x0, y0, z0, {"secondary": (xu, yu, zu)})
+
+    near = np.ascontiguousarray([[5.0, 5.0]])
+    expected = _reference_collocated_cokriging(
+        x0, y0, z0, [(xu, yu, zu)], [rho], near, nugget, partial_sill, model_range
+    )
+    assert np.allclose(ck.interpolate(near), expected, rtol=1e-6, atol=1e-6)
+
+    far = np.ascontiguousarray([[100.0, 100.0]])
+    expected = _reference_collocated_cokriging(x0, y0, z0, [], [], far, nugget, partial_sill, model_range)
+    assert np.allclose(ck.interpolate(far), expected, rtol=1e-6, atol=1e-6)
+
+
 def test_collocated_cokriging_k2_matches_reference_with_correlated_secondaries() -> None:
     # K=2, with the two secondaries also correlated with each other (not
     # just each with the primary) -- exercises the secondary<->secondary
@@ -645,6 +676,37 @@ def test_lmc_cokriging_k1_matches_reference() -> None:
     assert np.allclose(result, expected, rtol=1e-6, atol=1e-6)
 
 
+def test_icm_and_lmc_cokriging_use_nearest_primaries_beyond_radius() -> None:
+    # (300, 300) has no source within the radius: the primary falls back to
+    # its max_neighbors nearest and no secondary is in reach.
+    rng = np.random.default_rng(6)
+    n = 120
+    x0 = rng.uniform(0.0, 100.0, n)
+    y0 = rng.uniform(0.0, 100.0, n)
+    latent = _smooth_field(x0, y0, seed=1006)
+    z0 = latent + rng.normal(0.0, 0.15, n)
+    zu = 1.4 * latent + rng.normal(0.0, 0.25, n)
+    far = np.ascontiguousarray([[300.0, 300.0]])
+
+    icm = CoKriging(method="icm", radius=40.0, max_neighbors=12, min_neighbors=1)
+    icm.fit(x0, y0, z0, {"secondary": (x0, y0, zu)})
+    expected = _reference_icm_cokriging(
+        x0, y0, z0, [],
+        int(round(icm._fit.model_id)), icm._fit.model_range, icm._fit.nugget_matrix, icm._fit.sill_matrix,
+        far, np.inf, 12,
+    )
+    assert np.allclose(icm.interpolate(far), expected, rtol=1e-6, atol=1e-6)
+
+    lmc = CoKriging(method="lmc", n_structures=2, radius=40.0, max_neighbors=12, min_neighbors=1)
+    lmc.fit(x0, y0, z0, {"secondary": (x0, y0, zu)})
+    expected = _reference_lmc_cokriging(
+        x0, y0, z0, [],
+        int(round(lmc._fit.model_id)), lmc._fit.structure_ranges, lmc._fit.coefficient_matrices,
+        far, np.inf, 12,
+    )
+    assert np.allclose(lmc.interpolate(far), expected, rtol=1e-6, atol=1e-6)
+
+
 def test_lmc_cokriging_k2_matches_reference_with_correlated_secondaries() -> None:
     rng = np.random.default_rng(72)
     n = 100
@@ -734,6 +796,7 @@ def test_cokriging_rejects_invalid_method() -> None:
 
 if __name__ == "__main__":
     test_collocated_cokriging_k1_matches_reference()
+    test_collocated_cokriging_uses_nearest_primaries_and_drops_far_secondaries()
     test_collocated_cokriging_k2_matches_reference_with_correlated_secondaries()
     test_collocated_cokriging_fitted_model_beats_plain_kriging_when_primary_sparse()
     test_co_kriging_free_function_matches_class()
@@ -742,6 +805,7 @@ if __name__ == "__main__":
     test_icm_cokriging_k2_matches_reference_with_correlated_secondaries()
     test_icm_cokriging_rejects_non_psd_coregionalization()
     test_lmc_cokriging_k1_matches_reference()
+    test_icm_and_lmc_cokriging_use_nearest_primaries_beyond_radius()
     test_lmc_cokriging_k2_matches_reference_with_correlated_secondaries()
     test_lmc_goulard_voltz_recovers_known_coregionalization()
     test_cokriging_rejects_invalid_method()

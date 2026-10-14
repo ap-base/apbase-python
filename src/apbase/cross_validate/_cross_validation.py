@@ -21,7 +21,7 @@ from apbase.common.exceptions import (
 )
 from apbase.common.validation import require_neighbor_bounds
 from apbase.config import resolve_max_neighbors_ceiling, resolve_n_threads, resolve_variogram_profile
-from apbase.variogram import Variogram
+from apbase.variogram import Variogram, search_radius
 
 from ._native import run_cokriging_cross_validate, run_cross_validate
 
@@ -211,7 +211,8 @@ def cross_validate(
         finite points. ``None`` uses fresh entropy.
     radius:
         Local search radius shared by both methods. If ``None``, derived as
-        ``range / 3`` from the fitted (or supplied) variogram, matching the
+        ``range`` from the fitted (or supplied) variogram (``range / 3``
+        with 10 000 or more points), matching the
         default used by :class:`~apbase.idw.IDW` and
         :class:`~apbase.kriging.Kriging`.
     power:
@@ -265,7 +266,7 @@ def cross_validate(
 
     radius_value = radius
     if radius_value is None:
-        radius_value = float(variogram.model_params["range"]) / 3.0
+        radius_value = search_radius(variogram.model_params, x_valid.size)
     if not np.isfinite(radius_value) or radius_value <= 0.0:
         raise ValueError("radius must be finite and greater than zero")
 
@@ -350,8 +351,9 @@ def cross_validate_cokriging(
         finite points. ``None`` uses fresh entropy.
     radius:
         Local search radius shared by all three methods and by every
-        variable's neighbor search. If ``None``, derived as ``range / 3``
-        from a variogram fit on the primary alone (independent of any one
+        variable's neighbor search. If ``None``, derived as ``range``
+        (``range / 3`` with 10 000 or more points) from a variogram fit on
+        the primary alone (independent of any one
         method's own joint range fit).
     max_neighbors, min_neighbors:
         Neighbor bounds shared by all three methods.
@@ -418,7 +420,7 @@ def cross_validate_cokriging(
         variogram = Variogram(n_lags=n_lags, max_pairs=max_pairs, max_distance=max_distance).fit(
             x0_valid, y0_valid, z0_valid
         )
-        radius_value = float(variogram.model_params["range"]) / 3.0
+        radius_value = search_radius(variogram.model_params, x0_valid.size)
         if not np.isfinite(radius_value) or radius_value <= 0.0:
             raise ValueError("radius must be finite and greater than zero")
     else:

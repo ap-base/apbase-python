@@ -23,7 +23,7 @@ from apbase.config import (
     resolve_variogram_profile,
 )
 from apbase.cross_variogram import CrossVariogram
-from apbase.variogram import Variogram
+from apbase.variogram import Variogram, search_radius
 
 from ._native import (
     run_co_kriging_icm,
@@ -80,11 +80,14 @@ class CoKriging:
         ``"lmc"`` (full Linear Model of Coregionalization).
     radius:
         Local search radius for the primary neighborhood. If ``None``, uses
-        ``range / 3`` from the primary's variogram. For
-        ``method="collocated"``, each secondary must also have a value
-        within this radius of every target, or that target comes back
-        ``NaN``; ``"icm"``/``"lmc"`` search each variable's neighborhood
-        independently, so heterotopic secondaries work directly.
+        ``range`` from the primary's variogram (``range / 3`` with 10 000
+        or more points). With fewer than ``min_neighbors`` primary sources
+        within it, a target uses the ``max_neighbors`` nearest ones. For
+        ``method="collocated"``, a secondary with no value within this
+        radius of a target is left out of that target's system (none left:
+        ordinary kriging of the primary); ``"icm"``/``"lmc"`` search each
+        variable's neighborhood independently, so heterotopic secondaries
+        work directly.
     max_neighbors, min_neighbors:
         Primary neighbor bounds, same meaning as :class:`~apbase.kriging.
         Kriging`.
@@ -192,7 +195,7 @@ class CoKriging:
 
     @property
     def min_neighbors(self) -> int:
-        """Minimum primary neighbors required for a finite estimate.
+        """Minimum primary sources within ``radius`` before the nearest-sources fallback.
 
         Returns
         -------
@@ -566,10 +569,11 @@ class CoKriging:
         Returns
         -------
         numpy.ndarray
-            One estimate per target. A target is ``NaN`` if it has fewer than
-            ``min_neighbors`` primary neighbors within ``radius``; for
-            ``method="collocated"``, also if any secondary has no source
-            point within ``radius`` of it (see the class docstring).
+            One estimate per target. A target with fewer than
+            ``min_neighbors`` primary sources within ``radius`` uses the
+            ``max_neighbors`` nearest ones; for ``method="collocated"``, a
+            secondary with no source point within ``radius`` of it is left
+            out (see the class docstring).
         """
         self._require_fitted()
         assert self._x0 is not None
@@ -582,7 +586,7 @@ class CoKriging:
         assert self._secondary_offset is not None
 
         target_x, target_y = extract_target_xy(targets)
-        radius_value = self._resolve_radius(self._primary_model_params)
+        radius_value = self._resolve_radius(self._primary_model_params, self._x0.size)
 
         if isinstance(self._fit, _CollocatedFit):
             estimates, status = run_collocated_cokriging(
@@ -669,10 +673,12 @@ class CoKriging:
         if self._fit is None:
             raise ValueError("call fit(x0, y0, z0, secondaries) before interpolate(targets)")
 
-    def _resolve_radius(self, primary_model_params: dict[str, float | int | str]) -> float:
+    def _resolve_radius(
+        self, primary_model_params: dict[str, float | int | str], n_points: int
+    ) -> float:
         if self.radius is not None:
             return self.radius
-        radius_value = float(primary_model_params["range"]) / 3.0
+        radius_value = search_radius(primary_model_params, n_points)
         if not np.isfinite(radius_value) or radius_value <= 0.0:
             raise ValueError("radius must be finite and greater than zero")
         return radius_value

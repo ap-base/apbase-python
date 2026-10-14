@@ -182,7 +182,9 @@ def test_kriging_exact_match_returns_source_value() -> None:
     assert result[0] == 7.0
 
 
-def test_kriging_returns_nan_below_min_neighbors() -> None:
+def test_kriging_uses_nearest_sources_below_min_neighbors() -> None:
+    # One source within the radius is below min_neighbors=2, so the nearest
+    # sources beyond it (here both) are used; the close one dominates.
     x = np.ascontiguousarray([0.0, 100.0])
     y = np.ascontiguousarray([0.0, 100.0])
     z = np.ascontiguousarray([1.0, 2.0])
@@ -195,7 +197,7 @@ def test_kriging_returns_nan_below_min_neighbors() -> None:
         min_neighbors=2,
     ).fit(x, y, z).interpolate(grid)
 
-    assert np.isnan(result[0])
+    assert 1.0 < result[0] < 1.5
 
 
 def test_kriging_ignores_non_finite_source_rows() -> None:
@@ -254,7 +256,7 @@ if __name__ == "__main__":
     test_kriging_matches_reference_ordinary_kriging()
     test_kriging_matches_reference_for_exponential_and_gaussian_models()
     test_kriging_exact_match_returns_source_value()
-    test_kriging_returns_nan_below_min_neighbors()
+    test_kriging_uses_nearest_sources_below_min_neighbors()
     test_kriging_ignores_non_finite_source_rows()
     test_kriging_rejects_non_positive_radius()
     test_ordinary_kriging_free_function_matches_class()

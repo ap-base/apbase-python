@@ -5,7 +5,7 @@ import shapely
 
 from apbase.cross_validate import cross_validate
 from apbase.mapping import Map, MapResult, create_map
-from apbase.variogram import Variogram
+from apbase.variogram import Variogram, search_radius
 
 
 def _synthetic_source(
@@ -83,7 +83,7 @@ def test_map_selects_method_matching_lower_cross_validation_rmse() -> None:
     # fits internally, and confirm the automatic pick matches the lower
     # leave-one-out RMSE from cross_validate on identical inputs.
     variogram = Variogram(n_lags=50, max_pairs=100_000, max_distance=0.0).fit(x, y, z)
-    radius = float(variogram.model_params["range"]) / 3.0
+    radius = search_radius(variogram.model_params, x.size)
     cv = cross_validate(
         x,
         y,

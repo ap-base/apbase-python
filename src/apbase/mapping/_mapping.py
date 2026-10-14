@@ -45,7 +45,7 @@ from apbase.filtering import FilterStatistics, SpatialFilter
 from apbase.grid import Grid
 from apbase.idw import IDW
 from apbase.kriging import Kriging
-from apbase.variogram import Variogram
+from apbase.variogram import Variogram, search_radius
 
 type Bounds = BaseGeometry | str | bytes
 
@@ -445,7 +445,7 @@ def _build_map(
         max_pairs=max_pairs,
         max_distance=max_distance,
     ).fit(x_array, y_array, z_array)
-    radius = float(variogram.model_params["range"]) / 3.0
+    radius = search_radius(variogram.model_params, x_array.size)
 
     cv_result = cross_validate(
         x_array,

@@ -33,8 +33,8 @@ def idw(
     targets : array_like
         Target coordinates accepted by :meth:`apbase.idw.IDW.interpolate`.
     radius : float or None, default None
-        Local search radius. If ``None``, derive ``range / 3`` from a fitted
-        variogram.
+        Local search radius. If ``None``, derive ``range`` from a
+        fitted variogram (``range / 3`` with 10 000 or more points).
     power : float, default 2.0
         IDW distance exponent.
     max_neighbors, min_neighbors : int

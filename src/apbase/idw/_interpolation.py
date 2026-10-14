@@ -14,7 +14,7 @@ from apbase.common.arrays import (
 from apbase.common.exceptions import IDW_STATUS_ERRORS, raise_status_error
 from apbase.common.validation import require_neighbor_bounds
 from apbase.config import resolve_n_threads, resolve_variogram_profile
-from apbase.variogram import Variogram
+from apbase.variogram import Variogram, search_radius
 
 from ._native import run_idw
 
@@ -34,14 +34,15 @@ class IDW:
     ----------
     radius:
         Local search radius. If ``None``, ``fit`` estimates a variogram and
-        uses ``range / 3``.
+        uses ``range`` (``range / 3`` with 10 000 or more points).
     power:
         Exponent applied to distance in the IDW weights. ``2.0`` is the
         common inverse-square weighting.
     max_neighbors:
         Maximum source points used per target coordinate.
     min_neighbors:
-        Minimum source points required to produce a finite estimate.
+        Minimum sources within ``radius``; below it the ``max_neighbors``
+        nearest sources are used regardless of distance.
 
     Examples
     --------
@@ -127,7 +128,7 @@ class IDW:
 
     @property
     def min_neighbors(self) -> int:
-        """Minimum source points required to produce a finite estimate.
+        """Minimum sources within ``radius`` before the nearest-sources fallback.
 
         Returns
         -------
@@ -289,8 +290,8 @@ class IDW:
         -------
         numpy.ndarray
             One-dimensional ``float64`` array with one interpolated value per
-            target coordinate. Targets without enough neighbors are returned
-            as ``NaN``.
+            target coordinate. Targets with fewer than ``min_neighbors``
+            sources within ``radius`` use the ``max_neighbors`` nearest ones.
 
         Examples
         --------
@@ -299,7 +300,7 @@ class IDW:
         """
         x_array, y_array, z_array, model_params = self._get_fitted_state()
 
-        radius_value = self._resolve_radius(model_params)
+        radius_value = self._resolve_radius(model_params, x_array.size)
         if x_array.size < self.min_neighbors:
             raise ValueError("IDW requires at least min_neighbors finite points")
 
@@ -392,13 +393,14 @@ class IDW:
     def _resolve_radius(
         self,
         model_params: dict[str, float | int | str] | None,
+        n_points: int,
     ) -> float:
         if self.radius is not None:
             return self.radius
 
         if model_params is None:
             raise ValueError("IDW requires a fitted variogram or explicit radius")
-        radius_value = float(model_params["range"]) / 3.0
+        radius_value = search_radius(model_params, n_points)
         if not np.isfinite(radius_value) or radius_value <= 0.0:
             raise ValueError("radius must be finite and greater than zero")
         return radius_value

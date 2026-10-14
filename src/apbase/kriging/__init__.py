@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import ArrayLike
 
-from apbase.variogram import Variogram
+from apbase.variogram import Variogram, search_radius
 
 from ._interpolation import Kriging
 
@@ -51,8 +51,8 @@ def ordinary_kriging(
         Optional native variogram model vector. If omitted, a variogram is
         fitted from ``x``, ``y``, and ``z``.
     radius : float or None, default None
-        Local search radius. If ``None``, derive ``range / 3`` from the
-        selected variogram.
+        Local search radius. If ``None``, derive ``range`` from the
+        selected variogram (``range / 3`` with 10 000 or more points).
     max_neighbors, min_neighbors : int
         Neighbor bounds used by the local search.
     return_diagnostics : bool, default False
@@ -77,7 +77,8 @@ def ordinary_kriging(
 
     radius_value = radius
     if radius_value is None:
-        radius_value = float(kriging.model_params["range"]) / 3.0
+        x_array = kriging._get_fitted_state()[0]
+        radius_value = search_radius(kriging.model_params, x_array.size)
 
     return estimates, {
         "radius": float(radius_value),
