@@ -1,0 +1,315 @@
+name: Build wheels
+
+# Compiles the native module apbase._native.lib from the private
+# ap-base/apbase-fortran-kernels sources (tools/build_python.py) for each
+# platform and Python version, packs it into a repaired wheel, tests the wheel
+# and, when `version` is set, uploads it to that release of this repository
+# (pypi.yml publishes the release's wheels).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag to upload the wheels to, e.g. 0.1.2 (empty: artifacts only)"
+        type: string
+        default: ""
+      kernels_ref:
+        description: "Branch, tag or commit of ap-base/apbase-fortran-kernels"
+        type: string
+        default: main
+      build_linux:
+        description: "Build Linux wheels"
+        type: boolean
+        default: true
+      build_macos:
+        description: "Build macOS wheels"
+        type: boolean
+        default: true
+      build_windows:
+        description: "Build Windows wheels"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  OMP_NUM_THREADS: "2"
+  OPENBLAS_NUM_THREADS: "1"
+
+jobs:
+  linux:
+    if: inputs.build_linux
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Checkout kernels
+        uses: actions/checkout@v7
+        with:
+          repository: ap-base/apbase-fortran-kernels
+          ref: ${{ inputs.kernels_ref }}
+          token: ${{ secrets.APBASE_KERNELS_TOKEN }}
+          path: kernels
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install gfortran + OpenBLAS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential gfortran libopenblas-dev
+
+      - name: Build native module
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r kernels/requisitos.txt
+          python kernels/tools/build_python.py
+
+      - name: Use the module built for this interpreter
+        run: python .github/scripts/use_native_module.py kernels/dist/python src/apbase/_native
+
+      - name: Build wheel
+        run: |
+          pip install --upgrade setuptools wheel
+          pip wheel --no-cache-dir --no-deps --no-build-isolation -w dist .
+
+      - name: Repair wheel (vendors libgfortran/libopenblas/libgomp)
+        run: |
+          pip install auditwheel patchelf
+          auditwheel repair --plat auto -w wheelhouse dist/*.whl
+
+      - name: Test wheel
+        run: |
+          pip install wheelhouse/*.whl pytest
+          python -c "from apbase._native._lib import lib; lib.load()"
+          python -m pytest -q -p no:cacheprovider
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.python-version }}
+          path: wheelhouse/*.whl
+
+      - name: Upload wheel to the release
+        if: inputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          gh release view "${VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 || {
+            gh release create "${VERSION}" --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" \
+              --title "apbase ${VERSION}" --notes "Wheels for apbase ${VERSION}." \
+            || gh release view "${VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null
+          }
+          gh release upload "${VERSION}" wheelhouse/*.whl --repo "${GITHUB_REPOSITORY}" --clobber
+
+  macos:
+    if: inputs.build_macos
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+        os: [macos-14, macos-15-intel]
+        include:
+          - os: macos-14
+            macos-arch: arm64
+            macos-target: "14.0"
+          - os: macos-15-intel
+            macos-arch: x86_64
+            macos-target: "14.0"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Checkout kernels
+        uses: actions/checkout@v7
+        with:
+          repository: ap-base/apbase-fortran-kernels
+          ref: ${{ inputs.kernels_ref }}
+          token: ${{ secrets.APBASE_KERNELS_TOKEN }}
+          path: kernels
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install gfortran + OpenBLAS (Homebrew)
+        run: |
+          brew untap aws/tap 2>/dev/null || true
+          brew install gcc openblas
+          GFORTRAN_BIN="$(find "$(brew --prefix gcc)/bin" -maxdepth 1 -name 'gfortran-*' | sort -V | tail -n1)"
+          GCC_BIN="$(find "$(brew --prefix gcc)/bin" -maxdepth 1 -name 'gcc-[0-9]*' | sort -V | tail -n1)"
+          echo "FC=${GFORTRAN_BIN}" >> "$GITHUB_ENV"
+          echo "CC=${GCC_BIN}" >> "$GITHUB_ENV"
+          echo "OPENBLAS_PREFIX=$(brew --prefix openblas)" >> "$GITHUB_ENV"
+
+      - name: Build native module
+        env:
+          BLAS_LIBS: "-L${{ env.OPENBLAS_PREFIX }}/lib -lopenblas"
+          LDFLAGS: "-Wl,-rpath,${{ env.OPENBLAS_PREFIX }}/lib"
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r kernels/requisitos.txt
+          python kernels/tools/build_python.py
+
+      - name: Use the module built for this interpreter
+        run: python .github/scripts/use_native_module.py kernels/dist/python src/apbase/_native
+
+      - name: Build wheel
+        run: |
+          pip install --upgrade setuptools wheel
+          export MACOSX_DEPLOYMENT_TARGET="${{ matrix.macos-target }}"
+          export _PYTHON_HOST_PLATFORM="macosx-${MACOSX_DEPLOYMENT_TARGET}-${{ matrix.macos-arch }}"
+          pip wheel --no-cache-dir --no-deps --no-build-isolation -w dist .
+
+      - name: Repair wheel (vendors libgfortran/libopenblas/libgomp)
+        run: |
+          pip install delocate
+          delocate-wheel -w wheelhouse --require-archs="${{ matrix.macos-arch }}" -v dist/*.whl
+
+      - name: Test wheel
+        run: |
+          pip install wheelhouse/*.whl pytest
+          python -c "from apbase._native._lib import lib; lib.load()"
+          python -m pytest -q -p no:cacheprovider
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.macos-arch }}-${{ matrix.python-version }}
+          path: wheelhouse/*.whl
+
+      - name: Upload wheel to the release
+        if: inputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          gh release view "${VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 || {
+            gh release create "${VERSION}" --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" \
+              --title "apbase ${VERSION}" --notes "Wheels for apbase ${VERSION}." \
+            || gh release view "${VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null
+          }
+          gh release upload "${VERSION}" wheelhouse/*.whl --repo "${GITHUB_REPOSITORY}" --clobber
+
+  windows:
+    if: inputs.build_windows
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Checkout kernels
+        uses: actions/checkout@v7
+        with:
+          repository: ap-base/apbase-fortran-kernels
+          ref: ${{ inputs.kernels_ref }}
+          token: ${{ secrets.APBASE_KERNELS_TOKEN }}
+          path: kernels
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install MinGW-w64 gfortran + OpenBLAS (MSYS2)
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-gcc-fortran mingw-w64-x86_64-openblas mingw-w64-x86_64-pkgconf
+          cache: false
+
+      - name: Build native module
+        shell: pwsh
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $mingwBin = Join-Path $env:MSYS2_LOCATION 'mingw64\bin'
+          $mingwLib = Join-Path $env:MSYS2_LOCATION 'mingw64\lib'
+          if (-not (Test-Path (Join-Path $mingwBin 'gcc.exe'))) {
+            throw "gcc.exe not found under $mingwBin -- MSYS2_LOCATION output looks wrong (got '$($env:MSYS2_LOCATION)')"
+          }
+
+          $env:PATH = "$mingwBin;$env:PATH"
+          # Forward slashes: the build script splits CC/FC/BLAS_LIBS with shlex,
+          # which would eat backslashes.
+          $env:CC = (Join-Path $mingwBin 'gcc.exe') -replace '\\', '/'
+          $env:FC = (Join-Path $mingwBin 'gfortran.exe') -replace '\\', '/'
+          $env:PKG_CONFIG_PATH = Join-Path $mingwLib 'pkgconfig'
+
+          function Resolve-BlasLibs {
+            $pkgConfigExe = Join-Path $mingwBin 'pkg-config.exe'
+            $viaPkgConfig = (& $pkgConfigExe --libs openblas 2>$null)
+            if ($LASTEXITCODE -eq 0 -and $viaPkgConfig) {
+              $libDir = ($viaPkgConfig -split ' ' | Where-Object { $_ -like '-L*' } | Select-Object -First 1) -replace '^-L', ''
+              if ($libDir -and (Test-Path (Join-Path $libDir 'libopenblas.dll.a'))) {
+                return ($viaPkgConfig -join ' ')
+              }
+              Write-Host "pkg-config resolved '$viaPkgConfig' but libopenblas.dll.a isn't under it -- falling back"
+            } else {
+              Write-Host "pkg-config --libs openblas failed (exit $LASTEXITCODE) -- falling back"
+            }
+            if (-not (Test-Path (Join-Path $mingwLib 'libopenblas.dll.a'))) {
+              throw "cannot locate libopenblas.dll.a under $mingwLib"
+            }
+            $mingwLibFwd = $mingwLib -replace '\\', '/'
+            return "-L$mingwLibFwd -lopenblas"
+          }
+
+          $env:BLAS_LIBS = Resolve-BlasLibs
+          Write-Host "Resolved BLAS_LIBS: $($env:BLAS_LIBS)"
+
+          python -m pip install --upgrade pip
+          pip install -r kernels/requisitos.txt
+          python kernels/tools/build_python.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Use the module built for this interpreter
+        run: python .github/scripts/use_native_module.py kernels/dist/python src/apbase/_native
+
+      - name: Build wheel
+        run: |
+          pip install --upgrade setuptools wheel
+          pip wheel --no-cache-dir --no-deps --no-build-isolation -w dist .
+
+      - name: Repair wheel (vendors libgfortran/libopenblas/libgomp DLLs)
+        shell: pwsh
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          pip install delvewheel
+          $mingwBin = Join-Path $env:MSYS2_LOCATION 'mingw64\bin'
+          delvewheel repair --add-path $mingwBin -w wheelhouse (Get-Item dist\*.whl).FullName
+
+      - name: Test wheel
+        shell: pwsh
+        run: |
+          pip install (Get-Item wheelhouse\*.whl).FullName pytest
+          python -c "from apbase._native._lib import lib; lib.load()"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pytest -q -p no:cacheprovider
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-${{ matrix.python-version }}
+          path: wheelhouse/*.whl
+
+      - name: Upload wheel to the release
+        if: inputs.version != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          gh release view "${VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 || {
+            gh release create "${VERSION}" --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" \
+              --title "apbase ${VERSION}" --notes "Wheels for apbase ${VERSION}." \
+            || gh release view "${VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null
+          }
+          gh release upload "${VERSION}" wheelhouse/*.whl --repo "${GITHUB_REPOSITORY}" --clobber
