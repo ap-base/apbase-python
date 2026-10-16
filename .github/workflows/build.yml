@@ -41,10 +41,14 @@ jobs:
   linux:
     if: inputs.build_linux
     runs-on: ubuntu-latest
+    # Official manylinux_2_28 image (AlmaLinux 8, glibc 2.28): the wheels then
+    # install on Ubuntu 20.04+, Debian 11+, RHEL 8+. Building on the runner itself
+    # would tag them with the runner's much newer glibc.
+    container: quay.io/pypa/manylinux_2_28_x86_64
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13", "3.14"]
+        python-tag: [cp312-cp312, cp313-cp313, cp314-cp314]
     steps:
       - uses: actions/checkout@v7
       - name: Checkout kernels
@@ -54,14 +58,20 @@ jobs:
           ref: ${{ inputs.kernels_ref }}
           token: ${{ secrets.APBASE_KERNELS_TOKEN }}
           path: kernels
-      - uses: actions/setup-python@v7
-        with:
-          python-version: ${{ matrix.python-version }}
 
       - name: Install gfortran + OpenBLAS
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential gfortran libopenblas-dev
+          dnf install -y dnf-plugins-core epel-release
+          dnf config-manager --set-enabled powertools
+          toolset="$(ls -d /opt/rh/gcc-toolset-* | sort -V | tail -n1)"
+          dnf install -y "$(basename "$toolset")-gcc-gfortran" openblas-devel
+          echo "FC=${toolset}/root/usr/bin/gfortran" >> "$GITHUB_ENV"
+          echo "CC=${toolset}/root/usr/bin/gcc" >> "$GITHUB_ENV"
+
+      - name: Python environment
+        run: |
+          /opt/python/${{ matrix.python-tag }}/bin/python -m venv /opt/venv
+          echo "/opt/venv/bin" >> "$GITHUB_PATH"
 
       - name: Build native module
         run: |
@@ -78,9 +88,7 @@ jobs:
           pip wheel --no-cache-dir --no-deps --no-build-isolation -w dist .
 
       - name: Repair wheel (vendors libgfortran/libopenblas/libgomp)
-        run: |
-          pip install auditwheel patchelf
-          auditwheel repair --plat auto -w wheelhouse dist/*.whl
+        run: auditwheel repair --plat manylinux_2_28_x86_64 -w wheelhouse dist/*.whl
 
       - name: Test wheel
         run: |
@@ -90,22 +98,18 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-linux-${{ matrix.python-version }}
+          name: wheels-linux-${{ matrix.python-tag }}
           path: wheelhouse/*.whl
 
       - name: Upload wheel to the release
         if: inputs.version != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          gh release view "${VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 || {
-            gh release create "${VERSION}" --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" \
-              --title "apbase ${VERSION}" --notes "Wheels for apbase ${VERSION}." \
-            || gh release view "${VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null
-          }
-          gh release upload "${VERSION}" wheelhouse/*.whl --repo "${GITHUB_REPOSITORY}" --clobber
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: apbase ${{ inputs.version }}
+          files: wheelhouse/*.whl
+          overwrite_files: true
 
   macos:
     if: inputs.build_macos
