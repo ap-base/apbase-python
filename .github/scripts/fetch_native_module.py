@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import sys
 import sysconfig
 import urllib.request
@@ -35,20 +36,25 @@ def request(url: str, accept: str) -> urllib.request.Request:
 def main() -> int:
     release_tag, package_dir = sys.argv[1], Path(sys.argv[2])
     name = f"lib{sysconfig.get_config_var('EXT_SUFFIX') or '.so'}"
+    # macOS EXT_SUFFIX has no architecture, so those assets add it.
+    asset_name = name
+    if sys.platform == "darwin":
+        stem, extension = os.path.splitext(name)
+        asset_name = f"{stem}-{platform.machine()}{extension}"
 
     url = f"https://api.github.com/repos/{REPOSITORY}/releases/tags/{release_tag}"
     with urllib.request.urlopen(request(url, "application/vnd.github+json")) as response:
         assets = {asset["name"]: asset["url"] for asset in json.load(response)["assets"]}
-    if name not in assets:
-        raise SystemExit(f"kernels release {release_tag} has no {name}; available: {sorted(assets)}")
+    if asset_name not in assets:
+        raise SystemExit(f"kernels release {release_tag} has no {asset_name}; available: {sorted(assets)}")
 
     for pattern in ("lib.*.so", "lib.*.pyd"):
         for old in package_dir.glob(pattern):
             old.unlink()
             print(f"removed {old}")
-    with urllib.request.urlopen(request(assets[name], "application/octet-stream")) as response:
+    with urllib.request.urlopen(request(assets[asset_name], "application/octet-stream")) as response:
         (package_dir / name).write_bytes(response.read())
-    print(f"using {name} from kernels release {release_tag}")
+    print(f"using {asset_name} from kernels release {release_tag} as {name}")
     return 0
 
 
