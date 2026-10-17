@@ -46,9 +46,6 @@ def test_extract_target_xy_rejects_non_geometry_objects() -> None:
 def _reference_normalize_masked_regular_grid_spec(
     x_index: np.ndarray, y_index: np.ndarray
 ) -> tuple[list[int], list[int], list[int]]:
-    # The point-by-point Python loop normalize_masked_regular_grid_spec used
-    # before its vectorized np.flatnonzero rewrite, kept here only to fuzz
-    # the rewrite against for exact equivalence.
     row_indices: list[int] = []
     x_start_indices: list[int] = []
     counts: list[int] = []
@@ -77,18 +74,12 @@ def test_normalize_masked_regular_grid_spec_matches_reference_rle_fuzz() -> None
         dy = float(rng.uniform(0.5, 5.0))
         min_x, min_y = 10.0, -20.0
 
-        # Randomly mask out grid cells (simulating boundary exclusion), but
-        # every row and every column must keep at least one point: the
-        # function derives its own row/column indices from the *observed*
-        # unique x/y values among survivors, which only lines up with this
-        # test's virtual full-grid row/col positions if none of the
-        # full grid's rows/columns are entirely masked out.
         keep = rng.random((ny, nx)) > 0.35
         empty_cols = np.flatnonzero(~keep.any(axis=0))
         keep[rng.integers(0, ny, size=empty_cols.size), empty_cols] = True
         empty_rows = np.flatnonzero(~keep.any(axis=1))
         keep[empty_rows, rng.integers(0, nx, size=empty_rows.size)] = True
-        rows, cols = np.nonzero(keep)  # row-major order, matching Grid's own point order
+        rows, cols = np.nonzero(keep)
 
         x = min_x + cols.astype(np.float64) * dx
         y = min_y + rows.astype(np.float64) * dy

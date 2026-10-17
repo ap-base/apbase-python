@@ -16,9 +16,9 @@ from ._native import run_screen_covariate
 
 _STATUS_MESSAGES: dict[int, str] = {
     0: "ok",
-    1: "amostra insuficiente",
-    2: "modelo auto-variograma invalido",
-    3: "modelo cross-variograma invalido",
+    1: "insufficient sample",
+    2: "invalid auto-variogram model",
+    3: "invalid cross-variogram model",
 }
 
 
@@ -103,7 +103,7 @@ def screen_secondary_variables(
 
     Notes
     -----
-    A candidate rejected for "amostra insuficiente" (fewer than 4 colocated
+    A candidate rejected for "insufficient sample" (fewer than 4 colocated
     pairs) or an invalid fitted model is recorded in ``report`` with
     ``decision=False`` and the reason in ``status`` -- it does not raise.
 
@@ -189,7 +189,7 @@ def screen_secondary_variables(
             admissible_fraction=admissible_fraction,
             n_pairs=cross.n_pairs,
             decision=kept,
-            status=_STATUS_MESSAGES.get(status, f"status desconhecido ({status})"),
+            status=_STATUS_MESSAGES.get(status, f"unknown status ({status})"),
             model_params=cross.model_params if status == 0 else None,
         )
         if kept:

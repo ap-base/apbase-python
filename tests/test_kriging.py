@@ -106,14 +106,6 @@ def test_kriging_matches_reference_for_exponential_and_gaussian_models() -> None
 
 
 def test_kriging_matches_reference_with_sparse_cell_hash_fallback() -> None:
-    # Several small clusters spread far apart relative to `radius` push the
-    # native grid's cell count well past the dense-lookup cap, exercising the
-    # hash-based sparse cell index instead of the direct dense-array path.
-    # `_reference_ordinary_kriging` solves a *global* system (no radius
-    # cutoff), so each cluster's expected values are computed independently
-    # from only that cluster's points -- valid here because the clusters are
-    # far enough apart that no other cluster's points ever fall within
-    # `radius` of a target, matching what the local native kernel sees.
     centers = np.ascontiguousarray(
         [[0.0, 0.0], [50000.0, 0.0], [0.0, 50000.0], [50000.0, 50000.0], [25000.0, 25000.0]],
     )
@@ -183,8 +175,6 @@ def test_kriging_exact_match_returns_source_value() -> None:
 
 
 def test_kriging_uses_nearest_sources_below_min_neighbors() -> None:
-    # One source within the radius is below min_neighbors=2, so the nearest
-    # sources beyond it (here both) are used; the close one dominates.
     x = np.ascontiguousarray([0.0, 100.0])
     y = np.ascontiguousarray([0.0, 100.0])
     z = np.ascontiguousarray([1.0, 2.0])
@@ -212,7 +202,7 @@ def test_kriging_ignores_non_finite_source_rows() -> None:
         min_neighbors=1,
     ).fit(x, y, z)
 
-    assert kriging._x.size == 2  # noqa: SLF001
+    assert kriging._x.size == 2
 
 
 def test_kriging_rejects_non_positive_radius() -> None:

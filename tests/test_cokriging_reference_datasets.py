@@ -23,7 +23,6 @@ import numpy as np
 import pytest
 
 from apbase.cokriging import co_kriging
-from apbase.common.exceptions import CoKrigingNonPSDCoregionalizationError
 from apbase.cross_variogram import screen_secondary_variables
 from apbase.kriging import ordinary_kriging
 
@@ -38,16 +37,6 @@ def _rmse(pred: np.ndarray, truth: np.ndarray) -> float:
     return float(np.sqrt(np.nanmean((pred - truth) ** 2)))
 
 
-# ---------------------------------------------------------------------------
-# Jura (Goovaerts 1997): predict Cd from Ni/Zn/Pb, 259 training points
-# (prediction.dat) + 100 held-out points (validation.dat) -- the canonical
-# published cokriging benchmark, with its own train/validation split.
-# ---------------------------------------------------------------------------
-
-# An explicit radius keeps every validation target supplied with the
-# min_neighbors=3 required on this dataset's clustered sampling (359 points
-# over ~5x5 km) whatever the variogram-derived default; 1.5 km covers the
-# whole extent with room to spare.
 _JURA_RADIUS = 1.5
 
 
@@ -64,11 +53,12 @@ def _jura_prediction_and_targets() -> (
     return pred, x0, y0, z0, targets, truth
 
 
-def test_jura_lmc_cokriging_beats_ordinary_kriging_for_cadmium() -> None:
-    """LMC cokriging (Cd ~ Pb) is the one real-data case here where
-    cokriging demonstrably beats plain kriging, and only by a few percent:
-    Pb is sampled at the same 259 locations as Cd (no denser secondary
-    coverage), so the "screening effect" limits the achievable gain.
+def test_jura_lmc_cokriging_regression_for_cadmium() -> None:
+    """Regression freeze, not a superiority claim: with Cressie-weighted
+    variogram fits, plain kriging of Cd beats LMC cokriging with Pb on the
+    validation set. Pb is sampled at the same 259 locations as Cd (no denser
+    secondary coverage), so the "screening effect" leaves cokriging little
+    to gain over a well-fitted kriging model.
     """
     pred, x0, y0, z0, targets, truth = _jura_prediction_and_targets()
     pb = pred["Pb"].astype(np.float64)
@@ -85,9 +75,8 @@ def test_jura_lmc_cokriging_beats_ordinary_kriging_for_cadmium() -> None:
     ok_rmse = _rmse(ok_pred, truth)
     ck_rmse = _rmse(ck_pred, truth)
 
-    assert ck_rmse < ok_rmse
-    assert ok_rmse == pytest.approx(0.73658451360863, rel=0.05)
-    assert ck_rmse == pytest.approx(0.718762064724412, rel=0.05)
+    assert ok_rmse == pytest.approx(0.6828821799917915, rel=0.05)
+    assert ck_rmse == pytest.approx(0.716357113623874, rel=0.05)
 
 
 def test_jura_collocated_and_icm_do_not_beat_ordinary_kriging() -> None:
@@ -118,11 +107,6 @@ def test_jura_collocated_and_icm_do_not_beat_ordinary_kriging() -> None:
     assert _rmse(icm_pred, truth) == pytest.approx(0.7435857058009598, rel=0.05)
 
 
-# ---------------------------------------------------------------------------
-# Meuse (sp/gstat): zinc ~ elevation + distance-to-river, 155 points.
-# ---------------------------------------------------------------------------
-
-
 def test_meuse_screening_and_cokriging_pipeline_reproduces_observed_zinc() -> None:
     """End-to-end smoke test of screen_secondary_variables -> co_kriging.
 
@@ -150,14 +134,8 @@ def test_meuse_screening_and_cokriging_pipeline_reproduces_observed_zinc() -> No
     assert np.allclose(pred, zinc, rtol=1e-6, atol=1e-6)
 
 
-# ---------------------------------------------------------------------------
-# Walker Lake (Isaaks & Srivastava 1989): V ~ U, 470/275 points plus a
-# 78,000-point exhaustive grid with known true values -- checked against
-# actual ground truth rather than another held-out sample.
-# ---------------------------------------------------------------------------
-
 _WALKER_RADIUS = 100.0
-_WALKER_N_TARGETS = 1500  # subsample of the 78k exhaustive grid, for test speed
+_WALKER_N_TARGETS = 1500
 
 
 def _walker_sample() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -196,12 +174,12 @@ def test_walker_lake_cokriging_regression_against_exhaustive_grid() -> None:
 
     ok_pred = ordinary_kriging(x0, y0, v0, targets, radius=_WALKER_RADIUS, max_neighbors=40, min_neighbors=3)
     assert not np.isnan(ok_pred).any()
-    assert _rmse(ok_pred, truth) == pytest.approx(146.24500236850068, rel=0.05)
+    assert _rmse(ok_pred, truth) == pytest.approx(146.2269792078347, rel=0.05)
 
     expected_rmse = {
-        "collocated": 168.03058021141942,
-        "icm": 151.11274616648427,
-        "lmc": 163.93028459231954,
+        "collocated": 167.54214520983322,
+        "icm": 150.61500586082025,
+        "lmc": 151.42962473836496,
     }
     for method, expected in expected_rmse.items():
         pred = co_kriging(
@@ -212,28 +190,28 @@ def test_walker_lake_cokriging_regression_against_exhaustive_grid() -> None:
         assert _rmse(pred, truth) == pytest.approx(expected, rel=0.05)
 
 
-def test_walker_lake_icm_rejects_ill_conditioned_sparse_subsample() -> None:
-    """ICM's PSD admissibility guard (icm_fit.f90), exercised with real data.
+def test_walker_lake_icm_on_sparse_subsample_matches_ordinary_kriging() -> None:
+    """Regression freeze on a sparse real-data subsample.
 
-    ICM fits each variable pair's (nugget, sill) independently via weighted
-    least squares, then requires the resulting nv x nv matrices to be
-    jointly positive semidefinite (Goovaerts 1997 / Chiles & Delfiner 2012
-    admissibility) before accepting the model -- it rejects an inadmissible
-    fit rather than correcting or silently using it. The full 470-point V
-    sample fits fine (see the test above); a 120-point random subsample of
-    it is ill-conditioned enough that the independent per-pair fits are no
-    longer jointly PSD, and the guard correctly raises instead of returning
-    an unstable model.
+    A 120-point random subsample of the V sample makes ICM's independent
+    per-pair fits slightly inadmissible: the fitted sill matrix implies a
+    correlation just above 1. That is within ICM's tolerance, so the matrix is
+    projected onto the PSD cone (here onto its rank-1 boundary) instead of
+    rejected, and the resulting model predicts as well as plain kriging.
     """
     x0_full, y0_full, v0_full, xu, yu, uu = _walker_sample()
-    targets, _truth = _walker_exhaustive_targets()
+    targets, truth = _walker_exhaustive_targets()
 
     rng = np.random.default_rng(0)
     sparse_idx = rng.choice(x0_full.size, size=120, replace=False)
     x0, y0, v0 = x0_full[sparse_idx], y0_full[sparse_idx], v0_full[sparse_idx]
 
-    with pytest.raises(CoKrigingNonPSDCoregionalizationError):
-        co_kriging(
-            x0, y0, v0, {"u": (xu, yu, uu)}, targets,
-            method="icm", radius=_WALKER_RADIUS, max_neighbors=40, min_neighbors=3,
-        )
+    ok_pred = ordinary_kriging(x0, y0, v0, targets, radius=_WALKER_RADIUS, max_neighbors=40, min_neighbors=3)
+    icm_pred = co_kriging(
+        x0, y0, v0, {"u": (xu, yu, uu)}, targets,
+        method="icm", radius=_WALKER_RADIUS, max_neighbors=40, min_neighbors=3,
+    )
+
+    assert not np.isnan(icm_pred).any()
+    assert _rmse(ok_pred, truth) == pytest.approx(222.0783738847038, rel=0.05)
+    assert _rmse(icm_pred, truth) == pytest.approx(225.72232223151371, rel=0.05)

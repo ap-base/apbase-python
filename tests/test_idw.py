@@ -54,9 +54,6 @@ def test_idw_matches_reference() -> None:
 
 
 def test_idw_matches_reference_with_sparse_cell_hash_fallback() -> None:
-    # Several small clusters spread far apart relative to `radius` push the
-    # native grid's cell count well past the dense-lookup cap, exercising the
-    # hash-based sparse cell index instead of the direct dense-array path.
     centers = np.ascontiguousarray(
         [[0.0, 0.0], [50000.0, 0.0], [0.0, 50000.0], [50000.0, 50000.0], [25000.0, 25000.0]],
     )

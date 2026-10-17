@@ -17,6 +17,8 @@ from apbase.common.arrays import as_float64_1d, filter_finite_xyz, validate_same
 from apbase.common.exceptions import (
     COKRIGING_STATUS_ERRORS,
     CROSS_VALIDATE_STATUS_ERRORS,
+    CoKrigingInvalidModelError,
+    CoKrigingNonPSDCoregionalizationError,
     raise_status_error,
 )
 from apbase.common.validation import require_neighbor_bounds
@@ -83,13 +85,15 @@ class CokrigingCrossValidationResult:
     Attributes
     ----------
     by_method : dict[str, MethodCrossValidation]
-        Validation results keyed by method name.
+        Validation results keyed by method name. A method whose model could
+        not be fitted is absent; see :func:`cross_validate_cokriging`.
     n_samples : int
         Number of held-out primary samples evaluated.
     radius : float
         Shared local search radius.
     model_params : dict
-        Fitted cokriging parameters keyed by method name.
+        Fitted cokriging parameters keyed by method name, with the same keys
+        as ``by_method``.
     """
 
     by_method: dict[str, MethodCrossValidation]
@@ -316,6 +320,9 @@ def cross_validate(
     )
 
 
+_COKRIGING_METHODS = ("collocated", "icm", "lmc")
+
+
 def cross_validate_cokriging(
     x0: ArrayLike,
     y0: ArrayLike,
@@ -367,7 +374,12 @@ def cross_validate_cokriging(
         MAE, RMSE, and R2 per method under ``by_method``
         (``"collocated"``, ``"icm"``, ``"lmc"``), plus per-sample
         predictions and the held-out actual values (identical across
-        methods, evaluated on the same held-out samples).
+        methods, evaluated on the same held-out samples). A method whose
+        model cannot be fitted is left out instead of failing the call:
+        collocated cokriging when a secondary has too few samples at the
+        primary locations, and ICM or LMC when the fit is rejected as
+        non-positive-semidefinite or invalid. The error is raised only when
+        no method can be fitted.
 
     Raises
     ------
@@ -375,8 +387,8 @@ def cross_validate_cokriging(
         If input arrays, neighbor bounds, secondary variables, radius, or
         sample configuration are invalid.
     NativeExecutionError
-        If a native cokriging fit or cross-validation kernel reports a
-        failure status.
+        If the cross-validation kernel reports a failure status, or if no
+        method's model can be fitted (the first fit error is raised).
 
     Examples
     --------
@@ -395,25 +407,35 @@ def cross_validate_cokriging(
         max_neighbors, min_neighbors, max_neighbors_ceiling=resolve_max_neighbors_ceiling()
     )
 
-    collocated = CoKriging(
-        method="collocated", radius=radius, max_neighbors=max_neighbors, min_neighbors=min_neighbors
-    ).fit(x0, y0, z0, secondaries)
-    icm = CoKriging(
-        method="icm", radius=radius, max_neighbors=max_neighbors, min_neighbors=min_neighbors
-    ).fit(x0, y0, z0, secondaries)
-    lmc = CoKriging(
-        method="lmc", radius=radius, max_neighbors=max_neighbors, min_neighbors=min_neighbors,
-        n_structures=n_structures,
-    ).fit(x0, y0, z0, secondaries)
+    from apbase.cokriging._interpolation import _ICMFit, _LMCFit, _NoCollocatedSamplesError
 
-    x0_valid, y0_valid, z0_valid = collocated._x0, collocated._y0, collocated._z0
+    fitted: dict[str, CoKriging] = {}
+    errors: list[Exception] = []
+    for method in _COKRIGING_METHODS:
+        try:
+            fitted[method] = CoKriging(
+                method=method, radius=radius, max_neighbors=max_neighbors, min_neighbors=min_neighbors,
+                n_structures=n_structures if method == "lmc" else 2,
+            ).fit(x0, y0, z0, secondaries)
+        except (
+            _NoCollocatedSamplesError,
+            CoKrigingNonPSDCoregionalizationError,
+            CoKrigingInvalidModelError,
+        ) as exc:
+            errors.append(exc)
+    if not fitted:
+        raise errors[0]
+
+    reference = next(iter(fitted.values()))
+    x0_valid, y0_valid, z0_valid = reference._x0, reference._y0, reference._z0
     secondary_x, secondary_y, secondary_z = (
-        collocated._secondary_x, collocated._secondary_y, collocated._secondary_z
+        reference._secondary_x, reference._secondary_y, reference._secondary_z
     )
-    secondary_offset = collocated._secondary_offset
+    secondary_offset = reference._secondary_offset
     assert x0_valid is not None and y0_valid is not None and z0_valid is not None
     assert secondary_x is not None and secondary_y is not None and secondary_z is not None
     assert secondary_offset is not None
+    n_variables = len(reference._secondary_names) + 1
 
     if radius is None:
         n_lags, max_pairs, max_distance = resolve_variogram_profile()
@@ -429,10 +451,27 @@ def cross_validate_cokriging(
     sample_idx = _select_sample_idx(x0_valid.size, max_points, seed)
     n_threads = resolve_n_threads()
 
-    from apbase.cokriging._interpolation import _ICMFit, _LMCFit
-
-    assert isinstance(icm._fit, _ICMFit)
-    assert isinstance(lmc._fit, _LMCFit)
+    collocated = fitted.get("collocated")
+    icm = fitted.get("icm")
+    lmc = fitted.get("lmc")
+    square = np.zeros((n_variables, n_variables), dtype=np.float64)
+    if icm is not None:
+        assert isinstance(icm._fit, _ICMFit)
+        icm_args = (icm._fit.model_id, icm._fit.model_range, icm._fit.nugget_matrix, icm._fit.sill_matrix)
+    else:
+        icm_args = (1.0, 1.0, square, square)
+    if lmc is not None:
+        assert isinstance(lmc._fit, _LMCFit)
+        lmc_args = (lmc._fit.model_id, lmc._fit.structure_ranges, lmc._fit.coefficient_matrices)
+    else:
+        lmc_args = (
+            1.0,
+            np.ones(n_structures - 1, dtype=np.float64),
+            np.zeros((n_structures, n_variables, n_variables), dtype=np.float64),
+        )
+    collocated_model = (
+        collocated.model_values if collocated is not None else np.zeros(4 + n_variables, dtype=np.float64)
+    )
 
     (
         collocated_pred, icm_pred, lmc_pred,
@@ -443,10 +482,11 @@ def cross_validate_cokriging(
     ) = run_cokriging_cross_validate(
         x0_valid, y0_valid, z0_valid, sample_idx,
         secondary_x, secondary_y, secondary_z, secondary_offset,
-        collocated.model_values,
-        icm._fit.model_id, icm._fit.model_range, icm._fit.nugget_matrix, icm._fit.sill_matrix,
-        lmc._fit.model_id, lmc._fit.structure_ranges, lmc._fit.coefficient_matrices,
+        collocated_model, *icm_args, *lmc_args,
         radius_value, max_neighbors, min_neighbors, n_threads,
+        run_collocated=collocated is not None,
+        run_icm=icm is not None,
+        run_lmc=lmc is not None,
     )
     if status != 0:
         raise_status_error(
@@ -454,29 +494,24 @@ def cross_validate_cokriging(
         )
 
     actual = z0_valid[sample_idx - 1]
-    by_method = {
-        "collocated": MethodCrossValidation(
-            mae=collocated_mae, rmse=collocated_rmse, r2=collocated_r2, n_valid=collocated_n_valid,
-            predicted=collocated_pred, actual=actual,
-        ),
-        "icm": MethodCrossValidation(
-            mae=icm_mae, rmse=icm_rmse, r2=icm_r2, n_valid=icm_n_valid,
-            predicted=icm_pred, actual=actual,
-        ),
-        "lmc": MethodCrossValidation(
-            mae=lmc_mae, rmse=lmc_rmse, r2=lmc_r2, n_valid=lmc_n_valid,
-            predicted=lmc_pred, actual=actual,
-        ),
+    native_results = {
+        "collocated": (collocated_mae, collocated_rmse, collocated_r2, collocated_n_valid, collocated_pred),
+        "icm": (icm_mae, icm_rmse, icm_r2, icm_n_valid, icm_pred),
+        "lmc": (lmc_mae, lmc_rmse, lmc_r2, lmc_n_valid, lmc_pred),
     }
+    by_method: dict[str, MethodCrossValidation] = {}
+    model_params: dict[str, dict[str, Any]] = {}
+    for method, model in fitted.items():
+        mae, rmse, r2, n_valid, predicted = native_results[method]
+        by_method[method] = MethodCrossValidation(
+            mae=mae, rmse=rmse, r2=r2, n_valid=n_valid, predicted=predicted, actual=actual,
+        )
+        model_params[method] = model.model_params
     return CokrigingCrossValidationResult(
         by_method=by_method,
         n_samples=int(sample_idx.size),
         radius=float(radius_value),
-        model_params={
-            "collocated": collocated.model_params,
-            "icm": icm.model_params,
-            "lmc": lmc.model_params,
-        },
+        model_params=model_params,
     )
 
 

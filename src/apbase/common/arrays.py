@@ -233,12 +233,6 @@ def extract_target_xy(targets: object) -> tuple[np.ndarray, np.ndarray]:
             np.ascontiguousarray(array[:, 1], dtype=np.float64),
         )
 
-    # GeoSeries or plain list/tuple of shapely Points: shapely.get_x/get_y are
-    # vectorized (GEOS) ufuncs, avoiding a Python-level per-geometry .x/.y loop.
-    # Unlike a bare get_x/get_y call, get_type_id is checked explicitly first --
-    # get_x/get_y silently return NaN for non-Point geometries rather than
-    # raising, which would otherwise turn a real input error into a silent NaN
-    # target instead of the ValidationError callers expect.
     invalid_input_error = ValidationError(
         "targets must be a GeoDataFrame, GeoSeries/list of Points, or an (n, 2) array"
     )
@@ -324,11 +318,6 @@ def normalize_masked_regular_grid_spec(grid: object) -> MaskedRegularGridSpec | 
     if not np.allclose(min_y + y_index.astype(np.float64) * dy, y, rtol=1.0e-10, atol=atol):
         return None
 
-    # Run-length-encode consecutive points (in input order) that share a row
-    # and have strictly incrementing column indices, vectorized instead of a
-    # point-by-point Python while loop: a new run starts at position 0, and
-    # at any later position whose row differs from the previous point's row
-    # or whose column is not exactly one more than the previous point's.
     point_count = int(array.shape[0])
     is_run_start = np.empty(point_count, dtype=bool)
     is_run_start[0] = True

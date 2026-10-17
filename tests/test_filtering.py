@@ -30,13 +30,6 @@ def test_spatial_filter_keeps_finite_constant_values_with_explicit_radius() -> N
 
 
 def test_spatial_filter_dedup_radius_fixes_duplicate_clump_nan() -> None:
-    # A stalled flow sensor emits many bit-identical readings at nearly the
-    # same spot (a "duplicate clump"). When a nearby point's k-NN
-    # neighborhood is dominated by that clump, local variance collapses to
-    # exactly 0; since the point's own value is (almost) never bit-equal to
-    # the collapsed mean, its local_z/local_prob come back NaN and it gets
-    # dropped regardless of filter_level. dedup_radius collapses the clump
-    # to one representative in the neighbor pool, restoring real variance.
     rng = np.random.default_rng(0)
 
     n_strip = 40
@@ -89,11 +82,6 @@ def test_spatial_filter_dedup_radius_zero_matches_disabled_default() -> None:
 
 
 def test_spatial_filter_dedup_radius_with_full_radius_neighbor_scan() -> None:
-    # max_neighbors=0 takes the dense per-cell-sum aggregate path (a
-    # different branch than the k-NN heap), which needed its own
-    # dedup-aware neighbor count/sum bookkeeping (cell_rep_count) and a
-    # gated self-subtraction so a non-representative target point doesn't
-    # get double-subtracted from a sum it was never added to.
     x = np.ascontiguousarray([0.0, 0.05, 0.05, 20.0, 40.0])
     y = np.ascontiguousarray([0.0, 0.0, 0.05, 0.0, 0.0])
     z = np.ascontiguousarray([5.0, 5.0, 5.0, 9.0, 5.2])
@@ -130,23 +118,6 @@ def test_spatial_filter_uses_shared_variogram_radius() -> None:
 
 
 def test_spatial_filter_knn_local_stats_stable_for_large_mean_small_variance() -> None:
-    # Yield-monitor-scale values (mean ~150) with a tiny local spread
-    # (std ~1e-4): mean**2 (~22500) dwarfs the true variance (~1e-8) enough
-    # that a naive sum_sq/count - mean**2 computation loses essentially all
-    # significant digits -- and once the (correct, if tiny) variance falls
-    # below the old cancellation-tolerance floor (1e-12 * mean**2 ~ 2.25e-8
-    # here), it used to get clamped straight to zero, which for a non-exact
-    # match between z(point) and the mean left local_z/local_prob at their
-    # NaN initial value entirely (the same "duplicate clump" failure mode as
-    # test_spatial_filter_dedup_radius_fixes_duplicate_clump_nan above).
-    # Welford's online algorithm (mean + M2), used on the k-NN heap path,
-    # does not have this problem: it should match a straightforward NumPy
-    # population-variance reference closely.
-    #
-    # The extent (5900) must exceed radius (250) so the native code takes
-    # the spatial-grid k-NN heap path, not the "whole dataset fits in one
-    # radius" global-sum shortcut (a separate, still sum_sq-based code path
-    # this test does not cover).
     rng = np.random.default_rng(7)
     n = 60
     x = np.arange(n, dtype=np.float64) * 100.0
@@ -157,7 +128,7 @@ def test_spatial_filter_knn_local_stats_stable_for_large_mean_small_variance() -
     spatial_filter = SpatialFilter(
         radius=radius,
         apply_global_iqr=False,
-        max_neighbors=8,  # comfortably above the <=4 neighbors any point actually has within radius
+        max_neighbors=8,
         filter_level="light",
     ).fit(x, y, z)
     _, local_z, local_prob = spatial_filter.statistics
@@ -169,9 +140,9 @@ def test_spatial_filter_knn_local_stats_stable_for_large_mean_small_variance() -
         within = np.abs(x - x[i]) <= radius
         within[i] = False
         neighbor_z = z[within]
-        assert 0 < neighbor_z.size <= 4  # sanity: never hits the max_neighbors=8 cap
+        assert 0 < neighbor_z.size <= 4
         expected_mean = float(neighbor_z.mean())
-        expected_var = float(neighbor_z.var())  # population variance (ddof=0), matches the native formula
+        expected_var = float(neighbor_z.var())
         expected_z = (z[i] - expected_mean) / sqrt(expected_var)
         expected_prob = erfc(abs(expected_z) / sqrt(2.0))
         assert local_z[i] == pytest.approx(expected_z, rel=1e-6, abs=1e-9)

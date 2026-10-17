@@ -11,7 +11,7 @@ from types import ModuleType
 
 import numpy as np
 
-from apbase._native import lib as _shared_lib
+from apbase._native._lib import lib as _shared_lib
 from apbase.common.exceptions import NativeExecutionError, NativeExtensionError
 
 REQUIRED_SYMBOLS = ("cross_validate_local", "cokriging_cross_validate_local")
@@ -118,6 +118,10 @@ def run_cokriging_cross_validate(
     max_neighbors: int,
     min_neighbors: int,
     n_threads: int,
+    *,
+    run_collocated: bool = True,
+    run_icm: bool = True,
+    run_lmc: bool = True,
 ) -> tuple[
     np.ndarray, np.ndarray, np.ndarray,
     float, float, float, int,
@@ -130,6 +134,8 @@ def run_cokriging_cross_validate(
     All three methods share one primary neighbor search and evaluate the
     same fixed coregionalization models (fitted once beforehand) -- only the
     interpolation step is leave-one-out, matching :func:`run_cross_validate`.
+    A method whose ``run_*`` flag is ``False`` is skipped and its model
+    arguments are ignored; its predictions come back as NaN.
     """
     module = load_cross_validate_module()
     try:
@@ -148,14 +154,14 @@ def run_cokriging_cross_validate(
             _as_float64_contiguous(secondary_y),
             _as_float64_contiguous(secondary_z),
             _as_int32_contiguous(secondary_offset),
-            1,
+            int(run_collocated),
             _as_float64_contiguous(collocated_model),
-            1,
+            int(run_icm),
             float(icm_model_id),
             float(icm_range),
             _as_float64_contiguous(icm_nugget),
             _as_float64_contiguous(icm_sill),
-            1,
+            int(run_lmc),
             float(lmc_model_id),
             _as_float64_contiguous(lmc_ranges),
             _as_float64_contiguous(lmc_coefficients),

@@ -58,7 +58,6 @@ def test_grid_infers_concave_hull_boundary_when_none_given() -> None:
 
     assert grid.points.shape[0] > 0
     assert grid.fitted_boundary is not None
-    # every source point must fall inside its own inferred (buffered) boundary
     assert all(shapely.intersects_xy(grid.fitted_boundary, x, y))
 
 

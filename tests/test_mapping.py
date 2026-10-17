@@ -63,7 +63,7 @@ def test_map_requires_x_y_z_together() -> None:
 def test_map_filter_toggle_changes_source_points_and_statistics() -> None:
     x, y, z = _synthetic_source(seed=2, n=200)
     z = z.copy()
-    z[0] = 1000.0  # obvious outlier for the default global-IQR filter
+    z[0] = 1000.0
 
     filtered = create_map(x, y, z, resolution=10.0, filter=True)
     unfiltered = create_map(x, y, z, resolution=10.0, filter=False)
@@ -79,9 +79,6 @@ def test_map_selects_method_matching_lower_cross_validation_rmse() -> None:
 
     result = create_map(x, y, z, resolution=15.0, filter=False)
 
-    # Independently re-derive the same shared variogram/radius the pipeline
-    # fits internally, and confirm the automatic pick matches the lower
-    # leave-one-out RMSE from cross_validate on identical inputs.
     variogram = Variogram(n_lags=50, max_pairs=100_000, max_distance=0.0).fit(x, y, z)
     radius = search_radius(variogram.model_params, x.size)
     cv = cross_validate(
@@ -102,10 +99,6 @@ def test_map_selects_method_matching_lower_cross_validation_rmse() -> None:
 
 
 def test_map_bounds_accepts_geometry_wkt_and_wkb_equally() -> None:
-    # origin offset keeps boundary/x/y out of the [-180, 180] x [-90, 90]
-    # range guess_xy_coordinate_system() reads as geographic -- an
-    # un-offset box(10, 10, 60, 60) sits entirely inside it and gets
-    # flagged as a CRS mismatch against the (mostly) non-geographic data.
     origin = 10_000.0
     x, y, z = _synthetic_source(seed=4, n=150, offset=origin)
     boundary = shapely.box(origin + 10.0, origin + 10.0, origin + 60.0, origin + 60.0)
@@ -121,8 +114,6 @@ def test_map_bounds_accepts_geometry_wkt_and_wkb_equally() -> None:
 
 
 def test_map_output_coordinates_preserve_input_metric_not_rebased() -> None:
-    # Large, non-zero offset (UTM-like magnitude) so a silent rebase to a
-    # local 0..max/pixel-index system would be immediately visible.
     offset = 500_000.0
     extent = 100.0
     boundary = shapely.box(offset, offset, offset + extent, offset + extent)
@@ -141,14 +132,6 @@ def test_map_output_coordinates_preserve_input_metric_not_rebased() -> None:
 
 
 def test_map_to_raster_reconstructs_points_with_matching_coordinates_and_values() -> None:
-    # Offset keeps x/y out of the [-180, 180] x [-90, 90] range that
-    # guess_xy_coordinate_system() reads as geographic (lon/lat) -- an
-    # in-range small extent like the un-offset [-5, 25] this used to produce
-    # gets silently reprojected to UTM, turning resolution=5.0 into 5
-    # *meters* over a ~2,000 km-wide domain (a ~450k x 450k point grid,
-    # OOM). Same relative geometry as before (source overlaps the boundary
-    # box with a 5-unit margin on each side), just shifted to an unambiguous
-    # coordinate range.
     origin = 10_000.0
     boundary = shapely.box(origin, origin, origin + 20.0, origin + 20.0)
     x, y, z = _synthetic_source(seed=6, n=300, extent=30.0, offset=origin - 5.0)

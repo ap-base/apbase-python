@@ -17,8 +17,8 @@ VARIOGRAM_NAMES = {
     3: "gaussian",
 }
 
-#: Below this many source points the default search radius is the full range.
 FULL_RANGE_RADIUS_MAX_POINTS = 10_000
+"""Below this many source points the default search radius is the full range."""
 
 
 def search_radius(model_params: dict[str, float | int | str], n_points: int) -> float:

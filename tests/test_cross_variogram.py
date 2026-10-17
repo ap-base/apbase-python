@@ -96,9 +96,6 @@ def test_pure_noise_candidate_is_rejected_by_p_value() -> None:
 
 
 def test_high_rho_small_n_is_rejected_by_significance() -> None:
-    # n_pairs=6 (>= the native n_pairs>=4 guard) with rho=0.8: high enough
-    # correlation to clear min_abs_rho, but too few pairs for the Fisher
-    # z-test's 1/sqrt(n-3) standard error to call it significant at alpha=0.05.
     model_00 = np.ascontiguousarray([float(MODEL_SPHERICAL), 0.0, 1.0, 10.0, 0.0])
     model_uu = np.ascontiguousarray([float(MODEL_SPHERICAL), 0.0, 1.0, 10.0, 0.0])
     model_0u = np.ascontiguousarray([float(MODEL_SPHERICAL), 0.0, 0.8, 10.0, 0.0])
@@ -112,15 +109,12 @@ def test_high_rho_small_n_is_rejected_by_significance() -> None:
     reference_p = _fisher_p_value_reference(rho, n_pairs)
     assert status == 0
     assert np.isclose(p_value, reference_p, atol=1e-9)
-    assert reference_p > 0.05  # confirms this scenario genuinely tests the significance path
+    assert reference_p > 0.05
     assert decision is False
-    assert admissible_fraction == 1.0  # matched models, isolates the significance rejection
+    assert admissible_fraction == 1.0
 
 
 def test_cauchy_schwarz_violation_is_rejected_even_when_significant() -> None:
-    # model_0u's partial_sill (5.0) vastly exceeds sqrt(model_00 * model_uu)'s
-    # partial_sill (1.0) at every lag -- an inadmissible cross-variogram
-    # injected directly, isolated from the fit step.
     model_00 = np.ascontiguousarray([float(MODEL_SPHERICAL), 0.0, 1.0, 10.0, 0.0])
     model_uu = np.ascontiguousarray([float(MODEL_SPHERICAL), 0.0, 1.0, 10.0, 0.0])
     model_0u = np.ascontiguousarray([float(MODEL_SPHERICAL), 0.0, 5.0, 10.0, 0.0])
@@ -132,8 +126,8 @@ def test_cauchy_schwarz_violation_is_rejected_even_when_significant() -> None:
     )
 
     assert status == 0
-    assert p_value < 0.05  # significant on its own -- isolates the admissibility rejection
-    assert admissible_fraction < 0.9  # exceeds max_violation_fraction=0.1
+    assert p_value < 0.05
+    assert admissible_fraction < 0.9
     assert decision is False
 
 
@@ -149,11 +143,6 @@ def test_insufficient_sample_reports_status_without_raising() -> None:
     assert status == 1
     assert decision is False
 
-    # Both sides need enough of their own points for their individual
-    # auto-variogram fits to succeed (>= 3 populated lag bins) -- what makes
-    # the *pairing* insufficient is that only 3 coordinates are shared
-    # between them (exact-match join with max_colocation_dist=None), not a
-    # shortage of points on either side alone.
     shared_x = np.ascontiguousarray([0.0, 10.0, 0.0])
     shared_y = np.ascontiguousarray([0.0, 0.0, 10.0])
     primary_only = np.random.default_rng(50).uniform(20.0, 100.0, (27, 2))
@@ -168,16 +157,12 @@ def test_insufficient_sample_reports_status_without_raising() -> None:
     result = screen_secondary_variables(x0, y0, z0, {"barely_overlapping": (xc, yc, zc)}, n_lags=5)
     report = result.report["barely_overlapping"]
     assert report.n_pairs == 3
-    assert report.status == "amostra insuficiente"
+    assert report.status == "insufficient sample"
     assert report.decision is False
     assert "barely_overlapping" not in result.selected
 
 
 def test_bonferroni_correction_reduces_false_positive_vs_none() -> None:
-    # One borderline candidate whose Fisher p-value sits between alpha/K and
-    # alpha (K = len(candidates)): correction="none" tests it at alpha and
-    # accepts it, correction="bonferroni" tests it at alpha/K and rejects
-    # it -- same underlying data, same call, only `correction` differs.
     n = 40
     x = np.random.default_rng(30).uniform(0.0, 100.0, n)
     y = np.random.default_rng(31).uniform(0.0, 100.0, n)
@@ -190,7 +175,6 @@ def test_bonferroni_correction_reduces_false_positive_vs_none() -> None:
         candidates[f"filler_noise_{i}"] = (x, y, np.random.default_rng(100 + i).normal(0.0, 1.0, n))
 
     reference_p = _fisher_p_value_reference(0.35, n)
-    # sanity: the scenario actually straddles both thresholds
     assert 0.05 / len(candidates) < reference_p < 0.05
 
     result_none = screen_secondary_variables(x, y, z0, candidates, correction="none", n_lags=8)
@@ -203,11 +187,6 @@ def test_bonferroni_correction_reduces_false_positive_vs_none() -> None:
 
 
 def test_cross_variogram_matches_reference_correlation_and_reduces_to_auto_variogram_when_equal() -> None:
-    # Fitting a variable against itself through the (unconstrained) cross
-    # machinery must reproduce the same *shape* of semivariance as the
-    # (non-negativity-clamped) auto-variogram fitter: sanity check that the
-    # parallel-bracket cross estimator reduces correctly to the standard
-    # auto-semivariogram estimator when u=v (guards the sign convention).
     x = np.random.default_rng(40).uniform(0.0, 100.0, 150)
     y = np.random.default_rng(41).uniform(0.0, 100.0, 150)
     z0 = _smooth_field(x, y, seed=42) + np.random.default_rng(43).normal(0.0, 0.05, 150)
@@ -285,3 +264,36 @@ if __name__ == "__main__":
     test_cross_variogram_matches_reference_correlation_and_reduces_to_auto_variogram_when_equal()
     test_cross_variogram_survives_repeated_fits_with_many_duplicate_points()
     test_cross_variogram_rejects_size_mismatch()
+
+
+def test_screening_selects_nearly_collinear_secondary() -> None:
+    rng = np.random.default_rng(1)
+    x0, y0 = rng.uniform(0, 1000, 200), rng.uniform(0, 1000, 200)
+    z0 = np.sin(x0 / 150) * np.cos(y0 / 150) * 10 + rng.normal(0, 0.5, 200)
+    xu, yu = rng.uniform(0, 1000, 800), rng.uniform(0, 1000, 800)
+    zu = 2 * np.sin(xu / 150) * np.cos(yu / 150) * 10 + rng.normal(0, 1.0, 800)
+
+    result = screen_secondary_variables(x0, y0, z0, {"ndvi": (xu, yu, zu)}, max_colocation_dist=30.0)
+
+    report = result.report["ndvi"]
+    assert report.rho > 0.98
+    assert report.admissible_fraction >= 0.9
+    assert report.decision
+
+
+def test_cauchy_schwarz_tolerates_small_excess_and_rejects_large_one() -> None:
+    model_00 = np.ascontiguousarray([float(MODEL_SPHERICAL), 0.0, 1.0, 10.0, 0.0])
+    model_uu = np.ascontiguousarray([float(MODEL_SPHERICAL), 0.0, 1.0, 10.0, 0.0])
+
+    def screen(cross_sill: float) -> tuple[bool, float]:
+        model_0u = np.ascontiguousarray([float(MODEL_SPHERICAL), 0.0, cross_sill, 10.0, 0.0])
+        decision, _, admissible_fraction, status = run_screen_covariate(
+            model_00, model_uu, model_0u, 0.99, 100, alpha=0.05, min_abs_rho=0.3, max_violation_fraction=0.1
+        )
+        assert status == 0
+        return decision, admissible_fraction
+
+    assert screen(1.05) == (True, 1.0)
+    decision, admissible_fraction = screen(1.2)
+    assert decision is False
+    assert admissible_fraction < 0.9

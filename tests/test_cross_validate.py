@@ -107,8 +107,6 @@ def test_cross_validate_matches_reference_loocv() -> None:
         x, y, z, radius, 2.0, nugget, partial_sill, model_range, min_neighbors=1,
     )
 
-    # cross_validate uses all n points as samples since n <= default max_points,
-    # but sample order comes from arange(1, n+1), matching index order 0..n-1.
     assert result.n_samples == n
     assert np.allclose(result.idw.predicted, expected_idw, rtol=1e-6, atol=1e-6)
     assert np.allclose(result.kriging.predicted, expected_krig, rtol=1e-6, atol=1e-6)
@@ -131,8 +129,6 @@ def test_cross_validate_matches_reference_loocv() -> None:
 
 
 def test_cross_validate_uses_nearest_sources_below_min_neighbors() -> None:
-    # Two isolated points far from everything else: with a small radius and
-    # min_neighbors=2, the isolated pair ends up below min_neighbors.
     x = np.ascontiguousarray([0.0, 1.0, 2.0, 1000.0, 1001.0])
     y = np.ascontiguousarray([0.0, 0.0, 0.0, 0.0, 0.0])
     z = np.ascontiguousarray([1.0, 2.0, 3.0, 4.0, 5.0])
@@ -145,9 +141,6 @@ def test_cross_validate_uses_nearest_sources_below_min_neighbors() -> None:
         model_values=_model_values(0.5, 4.0, 30.0),
     )
 
-    # The two far points (indices 3, 4) only have each other within radius=5,
-    # below min_neighbors=2, so each falls back to its max_neighbors=4 nearest
-    # other sources (here all four).
     for index in (3, 4):
         others = np.flatnonzero(np.arange(x.size) != index)
         weights = 1.0 / (x[others] - x[index]) ** 2
@@ -196,9 +189,6 @@ def test_cross_validate_is_fast_for_500_points() -> None:
     y = np.ascontiguousarray(rng.uniform(0.0, 5000.0, n))
     z = np.ascontiguousarray(rng.normal(50.0, 10.0, n))
 
-    # Warm-up call: excludes one-time extension load / grid-build workspace
-    # allocation from the timed budget, matching how the native kernel is
-    # actually used in a long-running process.
     cross_validate(x, y, z, max_points=500, max_neighbors=20, min_neighbors=3)
 
     start = time.perf_counter()
@@ -266,7 +256,7 @@ def test_select_best_model_picks_lower_rmse_method_and_flags_significance() -> N
     assert best.method == "kriging"
     assert best.kriging_score < best.idw_score
     assert best.significant is True
-    assert best.ci_low > 0.0  # idw - kriging consistently positive: kriging is better
+    assert best.ci_low > 0.0
 
 
 def test_select_best_model_exact_tie_prefers_idw_and_is_not_significant() -> None:
@@ -378,8 +368,6 @@ def _smooth_field(
 
 
 def _cokriging_loo_fixture() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    # Same admissible (PSD) seed/noise profile as test_cokriging.py's ICM
-    # K1 fixture -- see the note there on why this seed was chosen.
     rng = np.random.default_rng(6)
     n = 60
     x0 = rng.uniform(0.0, 100.0, n)
@@ -421,11 +409,6 @@ def test_cross_validate_cokriging_matches_manual_loo() -> None:
     )
     assert result.n_samples == x0.size
 
-    # LOO here is on the PRIMARY only -- secondaries and the coregionalization
-    # model are fixed (see the checklist's Milestone 5 note), so the
-    # reference calls below hold out `pos` from x0/y0/z0 alone and reuse the
-    # full, untouched secondary arrays for every method, matching the CV
-    # kernel exactly.
     full_su = collocated._secondary_x, collocated._secondary_y, collocated._secondary_z
     full_offset = np.array([0, full_su[0].size], dtype=np.int32)
     check_positions = [0, 5, 17, 30, 45, x0.size - 1]
@@ -475,8 +458,6 @@ def test_cross_validate_cokriging_metrics_match_predictions() -> None:
 
 
 def test_cross_validate_cokriging_uses_nearest_sources_below_min_neighbors() -> None:
-    # With a 5-unit radius most samples have fewer than min_neighbors=3 other
-    # primaries in reach; every method still predicts all of them.
     x0, y0, z0, zu = _cokriging_loo_fixture()
     result = cross_validate_cokriging(
         x0, y0, z0, {"secondary": (x0, y0, zu)}, radius=5.0, max_neighbors=12, min_neighbors=3
@@ -564,3 +545,73 @@ if __name__ == "__main__":
     test_select_best_model_rejects_invalid_parameters()
     test_select_best_model_is_reproducible_with_seed()
     test_select_best_model_rejects_mismatched_actual_arrays()
+
+
+def test_cross_validate_cokriging_skips_collocated_for_heterotopic_secondaries() -> None:
+    rng = np.random.default_rng(0)
+    x0, y0 = rng.uniform(0, 1000, 200), rng.uniform(0, 1000, 200)
+    z0 = np.sin(x0 / 150) * np.cos(y0 / 150) * 10 + rng.normal(0, 0.5, 200)
+    xu, yu = rng.uniform(0, 1000, 600), rng.uniform(0, 1000, 600)
+    zu = -np.sin(xu / 150) * np.cos(yu / 150) * 10 + rng.normal(0, 1.0, 600)
+
+    result = cross_validate_cokriging(x0, y0, z0, {"ec": (xu, yu, zu)}, seed=0)
+
+    assert set(result.by_method) == {"icm", "lmc"}
+    assert set(result.model_params) == {"icm", "lmc"}
+    assert all(np.isfinite(method.rmse) for method in result.by_method.values())
+    best = select_best_model(result.by_method, seed=0)
+    assert isinstance(best, MultiMethodBestModelResult)
+    assert best.method in {"icm", "lmc"}
+
+
+def test_cross_validate_cokriging_icm_stays_stable_with_extra_secondary_samples() -> None:
+    rng = np.random.default_rng(0)
+    x0, y0 = rng.uniform(0, 1000, 200), rng.uniform(0, 1000, 200)
+    z0 = np.sin(x0 / 150) * np.cos(y0 / 150) * 10 + rng.normal(0, 0.5, 200)
+    xu = np.r_[x0, rng.uniform(0, 1000, 400)]
+    yu = np.r_[y0, rng.uniform(0, 1000, 400)]
+    zu = -np.sin(xu / 150) * np.cos(yu / 150) * 10 + rng.normal(0, 1.0, 600)
+
+    result = cross_validate_cokriging(x0, y0, z0, {"ec": (xu, yu, zu)}, seed=0)
+
+    assert result.by_method["icm"].rmse < 10 * float(np.std(z0))
+
+
+def _mismatched_structure_field(
+    x: np.ndarray, y: np.ndarray, seed: int, n_centers: int, scale: float
+) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    centers = rng.uniform(0.0, 100.0, (n_centers, 2))
+    amps = rng.normal(0.0, 1.0, n_centers)
+    out = np.zeros_like(x)
+    for amp, (cx, cy) in zip(amps, centers, strict=True):
+        out = out + amp * np.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2.0 * scale**2))
+    return out
+
+
+def test_cross_validate_cokriging_skips_a_method_whose_fit_is_rejected() -> None:
+    from apbase.cokriging import CoKriging
+    from apbase.common.exceptions import CoKrigingNonPSDCoregionalizationError
+
+    rng = np.random.default_rng(0)
+    x, y = rng.uniform(0.0, 100.0, 250), rng.uniform(0.0, 100.0, 250)
+    f_short = _mismatched_structure_field(x, y, 1, 60, 3.0)
+    f_med = _mismatched_structure_field(x, y, 2, 10, 15.0)
+    f_long = _mismatched_structure_field(x, y, 3, 3, 70.0)
+    secondaries = {
+        "short_medium": (x, y, f_short + 3.0 * f_med),
+        "short_long": (x, y, f_short + 3.0 * f_long),
+        "medium_long": (x, y, f_med - f_long),
+    }
+    try:
+        CoKriging(method="icm").fit(x, y, f_short, secondaries)
+    except CoKrigingNonPSDCoregionalizationError:
+        pass
+    else:
+        raise AssertionError("fixture must make the ICM fit fail")
+
+    result = cross_validate_cokriging(x, y, f_short, secondaries, seed=0)
+
+    assert set(result.by_method) == {"collocated", "lmc"}
+    assert set(result.model_params) == {"collocated", "lmc"}
+    assert all(np.isfinite(method.rmse) for method in result.by_method.values())

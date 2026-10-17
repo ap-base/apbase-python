@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from apbase.cokriging import CoKriging, co_kriging
 
@@ -10,9 +11,6 @@ MODEL_GAUSSIAN = 3
 
 
 def _variogram_shape(h: np.ndarray, model_id: int, model_range: float) -> np.ndarray:
-    # ICM's joint fit picks whichever of the 3 shapes best fits the data, so
-    # the reference solver (used against fitted, not hand-specified, models
-    # in the ICM tests below) needs all 3, not just spherical/gaussian.
     ratio = h / model_range
     if model_id == MODEL_SPHERICAL:
         clipped = np.clip(ratio, 0.0, 1.0)
@@ -57,8 +55,7 @@ def _reference_collocated_cokriging(
 
     Mirrors collocated_cokriging_local.f90's system exactly: C_0u(h) =
     rho_u * C00(h) and C_uv(x0,x0) = rho_u*rho_v*C00(0) for standardized
-    secondaries (COKRIGING_PLAN.md section 3/4c specialized to
-    standardized inputs -- see the kernel's own derivation comment).
+    secondaries.
 
     ``search_radius``/``max_neighbors`` truncate the primary neighbor set
     per target exactly like the kernel's own radius/max_neighbors search
@@ -157,9 +154,6 @@ def test_collocated_cokriging_k1_matches_reference() -> None:
 
 
 def test_collocated_cokriging_uses_nearest_primaries_and_drops_far_secondaries() -> None:
-    # (5, 5) has 2 primaries within the radius, below min_neighbors=3, so it
-    # uses all 6 nearest and keeps its secondary; (100, 100) has nothing
-    # within the radius, so the secondary is left out (ordinary kriging).
     x0 = np.ascontiguousarray([0.0, 10.0, 0.0, 10.0, 4.0, 7.0])
     y0 = np.ascontiguousarray([0.0, 0.0, 10.0, 10.0, 6.0, 2.0])
     z0 = np.ascontiguousarray([5.0, 7.0, 8.0, 10.0, 6.5, 6.0])
@@ -188,9 +182,6 @@ def test_collocated_cokriging_uses_nearest_primaries_and_drops_far_secondaries()
 
 
 def test_collocated_cokriging_k2_matches_reference_with_correlated_secondaries() -> None:
-    # K=2, with the two secondaries also correlated with each other (not
-    # just each with the primary) -- exercises the secondary<->secondary
-    # block of the system, per the plan's own testing note.
     rng = np.random.default_rng(7)
     n = 25
     x0 = rng.uniform(0.0, 100.0, n)
@@ -202,17 +193,11 @@ def test_collocated_cokriging_k2_matches_reference_with_correlated_secondaries()
     zu1 = rng.uniform(1.0, 10.0, n)
     xu2 = rng.uniform(0.0, 100.0, n)
     yu2 = rng.uniform(0.0, 100.0, n)
-    # correlation with zu1 comes from shared rho_uv in the model, not the raw data
     zu2 = rng.uniform(1.0, 10.0, n)
 
     grid = np.ascontiguousarray(rng.uniform(10.0, 90.0, (8, 2)))
     nugget, partial_sill, model_range = 0.5, 4.0, 60.0
     rho1, rho2 = 0.8, 0.6
-    # search_radius >> model_range: guarantees every one of the n=25 primary
-    # points (and the nearest secondary point) is found for every target, so
-    # the reference solver's "always include everyone" system matches the
-    # kernel's radius-bounded search exactly (unlike model_range, which is
-    # deliberately smaller and only shapes the covariance itself).
     search_radius = 1000.0
 
     result = (
@@ -234,19 +219,6 @@ def test_collocated_cokriging_k2_matches_reference_with_correlated_secondaries()
 
 
 def test_collocated_cokriging_truncates_primary_neighbors_correctly() -> None:
-    # Regression test for a real bug found via cross_validate_cokriging's
-    # manual-LOO cross-check (see COKRIGING_IMPLEMENTATION_CHECKLIST.md,
-    # Milestone 5): collocated_cokriging_local.f90's primary neighbor push
-    # tracked "worst kept distance" via a fresh linear scan on every insert,
-    # but never wrote that value back into neighbor_d2_local(1) -- the slot
-    # find_primary_neighbors' ring-pruning check assumes holds it (a
-    # max-heap root). Once more candidates existed within radius than
-    # max_neighbors, pruning compared against a stale/arbitrary slot-1 value
-    # instead of the true worst, silently dropping true nearest neighbors.
-    # K1/K2 above never catch this: both deliberately size max_neighbors >=
-    # every candidate (see the K2 fixture's own comment), so truncation
-    # never actually triggers. Here max_neighbors=8 with ~25-35 candidates
-    # within radius per target forces it every time.
     rng = np.random.default_rng(11)
     n = 50
     x0 = rng.uniform(0.0, 100.0, n)
@@ -279,12 +251,6 @@ def test_collocated_cokriging_truncates_primary_neighbors_correctly() -> None:
 
 
 def test_collocated_cokriging_fitted_model_beats_plain_kriging_when_primary_sparse() -> None:
-    # Cokriging's actual value proposition (COKRIGING_PLAN.md's own framing):
-    # a SPARSE primary alongside a DENSE, correlated secondary -- not a dense
-    # primary that plain kriging can already resolve well on its own (that
-    # scenario showed no reliable improvement when tried, matching the
-    # plan's own "screening effect" discussion: with enough primary
-    # neighbors already available, one extra covariate barely moves RMSE).
     from apbase.kriging import Kriging
 
     rng = np.random.default_rng(11)
@@ -296,7 +262,7 @@ def test_collocated_cokriging_fitted_model_beats_plain_kriging_when_primary_spar
     latent = np.zeros(n_dense)
     for amp, (cx, cy) in zip(amps, centers, strict=True):
         latent += amp * np.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2.0 * 25.0**2))
-    z_secondary = 1.5 * latent + rng.normal(0.0, 0.05, n_dense)  # dense, low-noise, covers every target
+    z_secondary = 1.5 * latent + rng.normal(0.0, 0.05, n_dense)
 
     sparse_idx = rng.choice(n_dense, size=20, replace=False)
     x0_sparse, y0_sparse = x[sparse_idx], y[sparse_idx]
@@ -305,7 +271,7 @@ def test_collocated_cokriging_fitted_model_beats_plain_kriging_when_primary_spar
     remaining = np.setdiff1d(np.arange(n_dense), sparse_idx)
     holdout = rng.choice(remaining, size=20, replace=False)
     targets = np.column_stack([x[holdout], y[holdout]])
-    actual = latent[holdout]  # noiseless signal: what both methods are trying to recover
+    actual = latent[holdout]
 
     cokrig_est = (
         CoKriging(method="collocated", radius=50.0, max_neighbors=15, min_neighbors=2)
@@ -345,10 +311,6 @@ def test_co_kriging_free_function_matches_class() -> None:
 
 
 def test_cokriging_lmc_model_values_override_raises_not_implemented() -> None:
-    # LMC's fit kernel is implemented; only the model_values override
-    # (pre-fitted model bypass) remains unsupported -- collocated's flat-
-    # vector format doesn't describe an LMC model (S nested (K+1)x(K+1)
-    # matrices), same restriction already in place for ICM.
     try:
         CoKriging(method="lmc", model_values=[1.0, 0.0, 1.0, 10.0, 0.0, 0.5])
     except NotImplementedError:
@@ -465,22 +427,6 @@ def _smooth_field(
 
 
 def test_icm_cokriging_k1_matches_reference() -> None:
-    # Isolates the INTERPOLATION kernel from the FIT: whatever model ICM's
-    # joint fit happens to produce for this data, the kernel's per-target
-    # estimate must match a direct NumPy solve of the same general block
-    # system (radius/max_neighbors-truncated per variable) built from that
-    # exact (model_id, range, nugget_matrix, sill_matrix). Uses a
-    # moderately-sized smooth field, not a handful of hand-picked points --
-    # ICM's joint fit needs enough colocated pairs to populate >=3 lag bins
-    # per one of the (K+1)(K+2)/2 pairs at the default n_lags=50 profile,
-    # which a 6-point fixture (as the collocated tests use, backed by an
-    # explicit model_values override ICM doesn't support) cannot supply.
-    # seed=6/1006 with this noise level lands on an admissible (PSD) per-pair
-    # nugget fit -- see test_icm_cokriging_rejects_non_psd_coregionalization's
-    # note: ICM's independent per-pair nugget WLS is inherently noisy when the
-    # true cross-nugget is near zero, so this fixture is chosen (not
-    # arbitrary) to avoid the degenerate near-zero-diagonal case exercised
-    # by the rejection test below.
     rng = np.random.default_rng(6)
     n = 120
     x0 = rng.uniform(0.0, 100.0, n)
@@ -505,13 +451,6 @@ def test_icm_cokriging_k1_matches_reference() -> None:
 
 
 def test_icm_cokriging_k2_matches_reference_with_correlated_secondaries() -> None:
-    # K=2, both secondaries sharing the same latent signal as the primary
-    # (so they are also correlated with EACH OTHER, not just each with the
-    # primary) -- exercises the secondary<->secondary block of the system,
-    # per the plan's own testing note.
-    # seed=46/1046 lands on an admissible (PSD) per-pair nugget fit while
-    # still exercising a nonzero secondary<->secondary block -- see the
-    # note in test_icm_cokriging_k1_matches_reference above.
     rng = np.random.default_rng(46)
     n = 100
     x0 = rng.uniform(0.0, 100.0, n)
@@ -535,7 +474,6 @@ def test_icm_cokriging_k2_matches_reference_with_correlated_secondaries() -> Non
         grid, radius, max_neighbors,
     )
     assert np.allclose(result, expected, rtol=1e-6, atol=1e-6)
-    # Secondary<->secondary block actually exercised: off-diagonal entry nonzero.
     assert ck._fit.sill_matrix[1, 2] != 0.0 or ck._fit.nugget_matrix[1, 2] != 0.0
 
 
@@ -551,27 +489,22 @@ def test_icm_cokriging_rejects_non_psd_coregionalization() -> None:
             out = out + amp * np.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2.0 * length_scale**2))
         return out
 
-    # Deterministic construction (trial_seed=0) known to produce a fitted
-    # sill_matrix that fails the PSD check: primary dominated by a
-    # short-range structure, each secondary sharing that short-range
-    # component but otherwise driven by a DIFFERENT-range structure of its
-    # own -- forcing ICM's single shared range to fit genuinely mismatched
-    # per-pair spatial structures.
-    trial_seed = 0
-    rng = np.random.default_rng(trial_seed)
+    rng = np.random.default_rng(0)
     n = 250
     x = rng.uniform(0.0, 100.0, n)
     y = rng.uniform(0.0, 100.0, n)
-    f_short = field(x, y, trial_seed * 3 + 1, 40, 4.0)
-    f_med = field(x, y, trial_seed * 3 + 2, 10, 15.0)
-    f_long = field(x, y, trial_seed * 3 + 3, 3, 70.0)
+    f_short = field(x, y, 1, 60, 3.0)
+    f_med = field(x, y, 2, 10, 15.0)
+    f_long = field(x, y, 3, 3, 70.0)
 
-    z0 = f_short + rng.normal(0.0, 0.01, n)
-    zu1 = 0.6 * f_short + f_med + rng.normal(0.0, 0.01, n)
-    zu2 = 0.6 * f_short + f_long + rng.normal(0.0, 0.01, n)
+    secondaries = {
+        "short_medium": (x, y, f_short + 3.0 * f_med),
+        "short_long": (x, y, f_short + 3.0 * f_long),
+        "medium_long": (x, y, f_med - f_long),
+    }
 
     try:
-        CoKriging(method="icm").fit(x, y, z0, {"medium_range": (x, y, zu1), "long_range": (x, y, zu2)})
+        CoKriging(method="icm").fit(x, y, f_short, secondaries)
     except CoKrigingNonPSDCoregionalizationError:
         pass
     else:
@@ -651,8 +584,6 @@ def _reference_lmc_cokriging(
 
 
 def test_lmc_cokriging_k1_matches_reference() -> None:
-    # Isolates the INTERPOLATION kernel from the FIT, same rationale as
-    # test_icm_cokriging_k1_matches_reference.
     rng = np.random.default_rng(70)
     n = 120
     x0 = rng.uniform(0.0, 100.0, n)
@@ -677,8 +608,6 @@ def test_lmc_cokriging_k1_matches_reference() -> None:
 
 
 def test_icm_and_lmc_cokriging_use_nearest_primaries_beyond_radius() -> None:
-    # (300, 300) has no source within the radius: the primary falls back to
-    # its max_neighbors nearest and no secondary is in reach.
     rng = np.random.default_rng(6)
     n = 120
     x0 = rng.uniform(0.0, 100.0, n)
@@ -732,19 +661,10 @@ def test_lmc_cokriging_k2_matches_reference_with_correlated_secondaries() -> Non
     )
     assert np.allclose(result, expected, rtol=1e-6, atol=1e-6)
     coeffs = ck._fit.coefficient_matrices
-    assert coeffs[:, 1, 2].any()  # secondary<->secondary block actually exercised
+    assert coeffs[:, 1, 2].any()
 
 
 def test_lmc_goulard_voltz_recovers_known_coregionalization() -> None:
-    # Known-case convergence test (S=2, nugget + 1 structure): simulate
-    # z0/zu from a coregionalization model with a KNOWN nugget/sill matrix
-    # pair, then check Goulard&Voltz recovers matrices close to the ones
-    # used to generate the data. Construction: for a (nv,nv) PSD matrix
-    # B^l = C^l (C^l)^T, Z = sum_l C^l @ W^l where each W^l is nv
-    # independent standard fields sharing structure l's spatial covariance
-    # (i.i.d. per point for the nugget; Cholesky-correlated for the
-    # continuous structure) reproduces Cov(Z_u(x), Z_v(y)) = B^l_uv * g^l(h)
-    # exactly by construction -- see COKRIGING_PLAN.md section 4a.
     rng = np.random.default_rng(80)
     n = 220
     x = rng.uniform(0.0, 100.0, n)
@@ -756,7 +676,7 @@ def test_lmc_goulard_voltz_recovers_known_coregionalization() -> None:
 
     h = np.hypot(x[:, None] - x[None, :], y[:, None] - y[None, :])
     spatial_cov = _covariance(h, MODEL_SPHERICAL, 0.0, 1.0, true_range)
-    spatial_cov += np.eye(n) * 1e-9  # numerical jitter for a clean Cholesky
+    spatial_cov += np.eye(n) * 1e-9
     l_spatial = np.linalg.cholesky(spatial_cov)
 
     def structure_field(b_matrix: np.ndarray, spatially_correlated: bool) -> np.ndarray:
@@ -764,11 +684,11 @@ def test_lmc_goulard_voltz_recovers_known_coregionalization() -> None:
         w = rng.normal(size=(nv, n))
         if spatially_correlated:
             w = w @ l_spatial.T
-        return c @ w  # (nv, n)
+        return c @ w
 
     z_nugget = structure_field(true_nugget_b, spatially_correlated=False)
     z_continuous = structure_field(true_sill_b, spatially_correlated=True)
-    z = z_nugget + z_continuous  # (nv, n): row 0 = primary, row 1 = secondary
+    z = z_nugget + z_continuous
     z0 = z[0]
     zu = z[1]
 
@@ -779,8 +699,6 @@ def test_lmc_goulard_voltz_recovers_known_coregionalization() -> None:
     fitted_sill = ck._fit.coefficient_matrices[1]
     assert np.allclose(fitted_sill, true_sill_b, rtol=0.35, atol=0.15)
     assert np.allclose(ck._fit.structure_ranges[0], true_range, rtol=0.5)
-    # Recovered matrices stay PSD (Goulard&Voltz's own guarantee, not just
-    # close to truth): both eigenvalue sets non-negative within tolerance.
     assert np.all(np.linalg.eigvalsh(fitted_nugget) >= -1e-6)
     assert np.all(np.linalg.eigvalsh(fitted_sill) >= -1e-6)
 
@@ -809,3 +727,28 @@ if __name__ == "__main__":
     test_lmc_cokriging_k2_matches_reference_with_correlated_secondaries()
     test_lmc_goulard_voltz_recovers_known_coregionalization()
     test_cokriging_rejects_invalid_method()
+
+
+def test_collocated_fit_rejects_secondary_without_collocated_pairs() -> None:
+    rng = np.random.default_rng(0)
+    x0, y0 = rng.uniform(0, 1000, 120), rng.uniform(0, 1000, 120)
+    z0 = np.sin(x0 / 150) + rng.normal(0, 0.1, 120)
+    xu, yu = rng.uniform(0, 1000, 300), rng.uniform(0, 1000, 300)
+    zu = np.sin(xu / 150) + rng.normal(0, 0.1, 300)
+
+    with pytest.raises(ValueError, match="'ec'.*collocated"):
+        CoKriging(method="collocated").fit(x0, y0, z0, {"ec": (xu, yu, zu)})
+
+
+def test_icm_fit_returns_psd_coregionalization_matrices() -> None:
+    rng = np.random.default_rng(0)
+    x0, y0 = rng.uniform(0, 1000, 200), rng.uniform(0, 1000, 200)
+    z0 = np.sin(x0 / 150) * np.cos(y0 / 150) * 10 + rng.normal(0, 0.5, 200)
+    xu = np.r_[x0, rng.uniform(0, 1000, 400)]
+    yu = np.r_[y0, rng.uniform(0, 1000, 400)]
+    zu = -np.sin(xu / 150) * np.cos(yu / 150) * 10 + rng.normal(0, 1.0, 600)
+
+    params = CoKriging(method="icm").fit(x0, y0, z0, {"ec": (xu, yu, zu)}).model_params
+
+    for name in ("nugget_matrix", "sill_matrix"):
+        assert np.linalg.eigvalsh(params[name]).min() >= -1e-12, name

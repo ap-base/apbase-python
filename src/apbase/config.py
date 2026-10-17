@@ -268,8 +268,7 @@ def resolve_max_lmc_structures_ceiling() -> int:
     ranges) -- unbounded S grows both the fit and per-target solve cost
     without limit, same rationale as the other ceilings in this module.
     Defaults to ``5``; override with
-    ``apbase.config["max_lmc_structures_ceiling"]``. Not enforced before
-    Milestone 4 (LMC).
+    ``apbase.config["max_lmc_structures_ceiling"]``.
 
     Returns
     -------

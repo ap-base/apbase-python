@@ -32,14 +32,11 @@ def test_idw_interpolate_is_safe_under_concurrent_top_level_calls() -> None:
         y = np.ascontiguousarray(local_rng.uniform(0.0, 1000.0, size=300))
         z = np.ascontiguousarray(local_rng.uniform(0.0, 50.0, size=300) + z_offset)
         grid = np.ascontiguousarray(local_rng.uniform(0.0, 1000.0, size=(200, 2)))
-        # Same radius/max_neighbors/min_neighbors/n_threads across both models
-        # so the shared native workspace is reused as-is (no reallocation) --
-        # exactly the path that used to race.
         model = IDW(radius=80.0, power=2.0, min_neighbors=1, max_neighbors=16).fit(x, y, z)
         return model, grid
 
     model_a, grid_a = make_model(1, z_offset=0.0)
-    model_b, grid_b = make_model(2, z_offset=1000.0)  # disjoint value range: corruption is obvious
+    model_b, grid_b = make_model(2, z_offset=1000.0)
 
     expected_a = model_a.interpolate(grid_a)
     expected_b = model_b.interpolate(grid_b)
@@ -75,10 +72,6 @@ def test_cross_validate_is_safe_under_concurrent_top_level_calls() -> None:
     x_a, y_a, z_a = make_dataset(1, z_offset=0.0)
     x_b, y_b, z_b = make_dataset(2, z_offset=1000.0)
 
-    # Same radius/max_neighbors/min_neighbors/power across both calls so the
-    # shared native workspace is reused as-is (no reallocation). An explicit
-    # radius also skips each call's internal variogram fit, keeping the two
-    # calls' native argument shapes identical.
     common_kwargs = dict(radius=80.0, power=2.0, max_neighbors=16, min_neighbors=1, seed=0)
 
     def run_a():

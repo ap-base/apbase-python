@@ -13,8 +13,6 @@ def _reset() -> None:
 
 
 def test_prepare_metric_xy_auto_picks_local_below_ceiling() -> None:
-    # geographic_mode=None (the default) auto-detects instead of raising:
-    # a field-scale extent auto-picks 'local' (epsg stays None).
     lon = np.array([-47.0, -47.001, -47.0, -47.001])
     lat = np.array([-15.0, -15.0, -15.001, -15.001])
 
@@ -24,8 +22,6 @@ def test_prepare_metric_xy_auto_picks_local_below_ceiling() -> None:
 
 
 def test_prepare_metric_xy_auto_picks_utm_past_ceiling() -> None:
-    # A regional extent auto-picks 'utm' instead of raising or silently
-    # falling back to an invalid flat-plane approximation.
     lon = np.array([-46.6, -38.5])
     lat = np.array([-23.5, -12.9])
 
@@ -44,9 +40,6 @@ def test_reproject_geographic_xy_auto_detects_geographic_mode() -> None:
 
 
 def test_prepare_metric_xy_local_mode_accepts_field_scale_extent() -> None:
-    # A single field, a few hundred meters across -- well within the flat
-    # tangent-plane approximation's validity, and the intended use case for
-    # geographic_mode="local".
     lon = np.array([-47.0, -47.001, -47.0, -47.001])
     lat = np.array([-15.0, -15.0, -15.001, -15.001])
 
@@ -59,9 +52,6 @@ def test_prepare_metric_xy_local_mode_accepts_field_scale_extent() -> None:
 
 
 def test_prepare_metric_xy_local_mode_rejects_regional_extent() -> None:
-    # ~1100 km apart (São Paulo to Salvador-ish longitude span) -- the flat
-    # tangent-plane approximation is no longer a reasonable stand-in for a
-    # real projection at this scale.
     lon = np.array([-46.6, -38.5])
     lat = np.array([-23.5, -12.9])
 
@@ -70,8 +60,6 @@ def test_prepare_metric_xy_local_mode_rejects_regional_extent() -> None:
 
 
 def test_prepare_metric_xy_utm_mode_unaffected_by_extent() -> None:
-    # geographic_mode="utm" reprojects onto a real projection, so the local
-    # flat-plane extent ceiling does not apply to it.
     lon = np.array([-46.6, -38.5])
     lat = np.array([-23.5, -12.9])
 

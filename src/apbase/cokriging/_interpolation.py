@@ -43,6 +43,10 @@ SecondaryInput = (
 )
 
 
+class _NoCollocatedSamplesError(ValueError):
+    """A secondary shares too few sample locations with the primary for collocated cokriging."""
+
+
 @dataclass(frozen=True, slots=True)
 class _CollocatedFit:
     model_values: np.ndarray
@@ -470,10 +474,17 @@ class CoKriging:
                 x0_valid, y0_valid, z0_valid
             )
             rhos = []
-            for xu, yu, zu in secondary_arrays:
+            for name, (xu, yu, zu) in zip(names, secondary_arrays, strict=True):
                 cross = CrossVariogram(n_lags=n_lags, max_pairs=max_pairs, max_distance=max_distance).fit(
                     x0_valid, y0_valid, z0_valid, xu, yu, zu
                 )
+                if not np.isfinite(cross.rho):
+                    raise _NoCollocatedSamplesError(
+                        f"secondary {name!r} has too few collocated samples with the primary to "
+                        "estimate its correlation; collocated cokriging needs secondary values at "
+                        "the primary sample locations (use method='icm' or 'lmc' for "
+                        "heterotopic data)"
+                    )
                 rhos.append(cross.rho)
             model_values = np.concatenate(
                 [primary_variogram.model_values, np.asarray(rhos, dtype=np.float64)]

@@ -71,11 +71,6 @@ def raise_status_error(
     raise NativeExecutionError(f"{fallback_message} (status {status})")
 
 
-# ---------------------------------------------------------------------------
-# IDW
-# ---------------------------------------------------------------------------
-
-
 class IDWInvalidDataError(InterpolationError, NativeExecutionError):
     """Raised when the native IDW kernel receives invalid source or target data."""
 
@@ -118,11 +113,6 @@ IDW_STATUS_ERRORS: dict[int, type[NativeExecutionError]] = {
     4: IDWInvalidConfigurationError,
     5: IDWAllocationError,
 }
-
-
-# ---------------------------------------------------------------------------
-# Kriging
-# ---------------------------------------------------------------------------
 
 
 class KrigingInvalidDataError(InterpolationError, NativeExecutionError):
@@ -177,11 +167,6 @@ KRIGING_STATUS_ERRORS: dict[int, type[NativeExecutionError]] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Cokriging
-# ---------------------------------------------------------------------------
-
-
 class CoKrigingInvalidDataError(InterpolationError, NativeExecutionError):
     """Raised when the native cokriging kernel receives invalid source or target data."""
 
@@ -227,9 +212,8 @@ class CoKrigingInvalidModelError(InterpolationError, NativeExecutionError):
 class CoKrigingNonPSDCoregionalizationError(InterpolationError, NativeExecutionError):
     """Raised when the fitted coregionalization matrix is not positive semidefinite.
 
-    Reserved from Milestone 1 onward but only ever raised starting at
-    Milestone 3 (ICM): the collocated model (rho per secondary) has no
-    coregionalization matrix to validate.
+    Only the ICM and LMC models have a coregionalization matrix to validate;
+    the collocated model (one rho per secondary) never raises it.
     """
 
     def __init__(self) -> None:
@@ -245,11 +229,6 @@ COKRIGING_STATUS_ERRORS: dict[int, type[NativeExecutionError]] = {
     6: CoKrigingInvalidModelError,
     7: CoKrigingNonPSDCoregionalizationError,
 }
-
-
-# ---------------------------------------------------------------------------
-# Spatial filtering
-# ---------------------------------------------------------------------------
 
 
 class SpatialFilterInvalidDataError(SpatialFilterError, NativeExecutionError):
@@ -286,11 +265,6 @@ FILTER_STATUS_ERRORS: dict[int, type[NativeExecutionError]] = {
     3: SpatialFilterInvalidConfigurationError,
     4: SpatialFilterAllocationError,
 }
-
-
-# ---------------------------------------------------------------------------
-# Cross-validation
-# ---------------------------------------------------------------------------
 
 
 class CrossValidationInvalidDataError(CrossValidationError, NativeExecutionError):
@@ -353,11 +327,6 @@ CROSS_VALIDATE_STATUS_ERRORS: dict[int, type[NativeExecutionError]] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Variogram
-# ---------------------------------------------------------------------------
-
-
 class VariogramInvalidModelIdError(VariogramError, NativeExecutionError):
     """Raised when the fitted model_info vector has a non-finite model id."""
 
@@ -392,19 +361,6 @@ SELECT_STATUS_ERRORS: dict[int, type[NativeExecutionError]] = {
     3: VariogramInvalidRangeError,
     4: VariogramInvalidThreadCountError,
 }
-
-
-# ---------------------------------------------------------------------------
-# Cross-variogram / covariate screening
-# ---------------------------------------------------------------------------
-#
-# fit_cross_variogram (the fit layer) has no status output, mirroring
-# fit_variogram_models -- see cross_variogram_fit.f90. These map
-# screen_covariate's status codes; screen_secondary_variables (the high-level
-# API) deliberately does NOT raise on them -- a non-zero status there (e.g.
-# insufficient paired sample) is a normal, reportable per-candidate outcome,
-# recorded in CovariateReport.status instead of raised. They exist for
-# callers using the lower-level native wrapper directly.
 
 
 class CrossVariogramInsufficientSampleError(CrossVariogramError, NativeExecutionError):

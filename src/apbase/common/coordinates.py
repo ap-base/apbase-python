@@ -459,7 +459,7 @@ def restore_original_xy(
         y_out[mask] = lat
         return np.ascontiguousarray(x_out), np.ascontiguousarray(y_out)
 
-    assert transform.lon0 is not None and transform.lat0 is not None  # geographic_mode == "local"
+    assert transform.lon0 is not None and transform.lat0 is not None
     lat0_rad = np.deg2rad(transform.lat0)
     x_out[mask] = transform.lon0 + np.rad2deg(x_shifted / (EARTH_RADIUS_M * np.cos(lat0_rad)))
     y_out[mask] = transform.lat0 + np.rad2deg(y_shifted / EARTH_RADIUS_M)

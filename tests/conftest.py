@@ -18,7 +18,7 @@ def _trim_heap() -> None:
     try:
         ctypes.CDLL("libc.so.6").malloc_trim(0)
     except OSError:
-        pass  # non-glibc platform (e.g. macOS, musl): no-op
+        pass
 
 
 @pytest.fixture(autouse=True)

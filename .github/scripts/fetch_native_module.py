@@ -1,6 +1,7 @@
 """Download the native module built for this interpreter into the package tree.
 
-    KERNELS_TOKEN=... python .github/scripts/fetch_native_module.py <kernels release tag> <src/apbase/_native dir>
+    KERNELS_TOKEN=... python .github/scripts/fetch_native_module.py \
+        <kernels release tag> <src/apbase/_native dir>
 
 The kernels release carries one `lib.<tag>.<ext>` per platform and Python
 version (tag from EXT_SUFFIX, e.g. `cpython-312-x86_64-linux-gnu`). Every
@@ -36,7 +37,6 @@ def request(url: str, accept: str) -> urllib.request.Request:
 def main() -> int:
     release_tag, package_dir = sys.argv[1], Path(sys.argv[2])
     name = f"lib{sysconfig.get_config_var('EXT_SUFFIX') or '.so'}"
-    # macOS EXT_SUFFIX has no architecture, so those assets add it.
     asset_name = name
     if sys.platform == "darwin":
         stem, extension = os.path.splitext(name)

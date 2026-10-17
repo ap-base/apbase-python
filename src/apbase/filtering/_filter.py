@@ -16,15 +16,10 @@ DEFAULT_MAX_NEIGHBORS = 120
 DEFAULT_CELL_FACTOR = 3
 DEFAULT_GLOBAL_IQR_WHISKER = 3.0
 
-# Fixed variogram-fitting configuration used to derive radius when it is not
-# passed explicitly. Not user-configurable; see Variogram for the underlying
-# fitter if a different profile is ever needed.
 _VARIOGRAM_N_LAGS = 20
 _VARIOGRAM_MAX_PAIRS = 100_000
 _VARIOGRAM_MAX_DISTANCE = 0.0
 
-# Ordered loosest -> strictest; values are the native threshold profile ids
-# consumed by viz_filter_mask (see filter_mask.f90's filter_thresholds).
 FILTER_LEVELS = {
     "light": 1,
     "moderate": 2,
@@ -547,8 +542,6 @@ class SpatialFilter:
         return self.fit_filter(x, y, z)
 
     def _resolve_radius(self, model_params: dict[str, float | int | str] | None) -> float:
-        # An explicit self.radius was already validated in __init__ and can't change
-        # afterwards, so only the model-derived value needs checking here.
         if self.radius is not None:
             return self.radius
 

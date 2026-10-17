@@ -7,7 +7,7 @@ from types import ModuleType
 import numpy as np
 from numpy.typing import ArrayLike
 
-from apbase._native import lib as _shared_lib
+from apbase._native._lib import lib as _shared_lib
 from apbase.common.exceptions import NativeExecutionError, NativeExtensionError
 
 REQUIRED_SYMBOLS = (

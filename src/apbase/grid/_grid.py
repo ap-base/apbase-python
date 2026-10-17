@@ -384,9 +384,6 @@ class Grid:
 
     @staticmethod
     def _axis_range(lo: float, hi: float, step: float) -> np.ndarray:
-        # np.linspace with a count derived via round(), rather than np.arange
-        # with a float step, avoids floating-point accumulation error that
-        # can silently drop or add a point at the far edge of the axis.
         start = np.floor(lo / step) * step
         stop = np.ceil(hi / step) * step
         count = int(round((stop - start) / step)) + 1
@@ -493,13 +490,6 @@ class Grid:
         if n <= _HULL_DECIMATE_TARGET_POINTS:
             return x, y
 
-        # Cell size derived from the point cloud's own density (bounding-box
-        # area / target point count), not from `resolution`: the two are
-        # unrelated in general (dense source data onto a coarse grid vs.
-        # sparse data onto a fine grid), so a resolution-derived cell can
-        # land far below the actual point spacing and decimate nothing while
-        # still paying its own overhead. This self-calibrates regardless of
-        # how resolution and source density relate.
         area = float(x.max() - x.min()) * float(y.max() - y.min())
         if not np.isfinite(area) or area <= 0.0:
             return x, y
