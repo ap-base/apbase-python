@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 
 import numpy as np
+import pytest
 
 from apbase.cross_validate import (
     BestModelResult,
@@ -425,13 +426,13 @@ def test_cross_validate_cokriging_matches_manual_loo() -> None:
         icm_pred, status = run_co_kriging_icm(
             held_x0, held_y0, held_z0, tx, ty,
             icm._fit.model_id, icm._fit.model_range, icm._fit.nugget_matrix, icm._fit.sill_matrix,
-            *full_su, full_offset, radius, max_neighbors, min_neighbors, 1,
+            *full_su, full_offset, radius, max_neighbors, max_neighbors, min_neighbors, 1,
         )
         assert status == 0
         lmc_pred, status = run_co_kriging_lmc(
             held_x0, held_y0, held_z0, tx, ty,
             lmc._fit.model_id, lmc._fit.structure_ranges, lmc._fit.coefficient_matrices,
-            *full_su, full_offset, radius, max_neighbors, min_neighbors, 1,
+            *full_su, full_offset, radius, max_neighbors, max_neighbors, min_neighbors, 1,
         )
         assert status == 0
 
@@ -547,21 +548,33 @@ if __name__ == "__main__":
     test_select_best_model_rejects_mismatched_actual_arrays()
 
 
-def test_cross_validate_cokriging_skips_collocated_for_heterotopic_secondaries() -> None:
+def _heterotopic_fixture() -> tuple[np.ndarray, ...]:
     rng = np.random.default_rng(0)
     x0, y0 = rng.uniform(0, 1000, 200), rng.uniform(0, 1000, 200)
     z0 = np.sin(x0 / 150) * np.cos(y0 / 150) * 10 + rng.normal(0, 0.5, 200)
     xu, yu = rng.uniform(0, 1000, 600), rng.uniform(0, 1000, 600)
     zu = -np.sin(xu / 150) * np.cos(yu / 150) * 10 + rng.normal(0, 1.0, 600)
+    return x0, y0, z0, xu, yu, zu
 
-    result = cross_validate_cokriging(x0, y0, z0, {"ec": (xu, yu, zu)}, seed=0)
 
-    assert set(result.by_method) == {"icm", "lmc"}
-    assert set(result.model_params) == {"icm", "lmc"}
+def test_cross_validate_cokriging_rejects_unpaired_heterotopic_secondaries() -> None:
+    x0, y0, z0, xu, yu, zu = _heterotopic_fixture()
+
+    with pytest.raises(ValueError, match="'ec'.*max_colocation_dist"):
+        cross_validate_cokriging(x0, y0, z0, {"ec": (xu, yu, zu)}, seed=0)
+
+
+def test_cross_validate_cokriging_pairs_heterotopic_secondaries_within_max_colocation_dist() -> None:
+    x0, y0, z0, xu, yu, zu = _heterotopic_fixture()
+
+    result = cross_validate_cokriging(x0, y0, z0, {"ec": (xu, yu, zu)}, seed=0, max_colocation_dist=30.0)
+
+    assert set(result.by_method) == {"collocated", "icm", "lmc"}
+    assert set(result.model_params) == {"collocated", "icm", "lmc"}
     assert all(np.isfinite(method.rmse) for method in result.by_method.values())
+    assert result.model_params["icm"]["sill_matrix"][0, 1] < 0.0
     best = select_best_model(result.by_method, seed=0)
     assert isinstance(best, MultiMethodBestModelResult)
-    assert best.method in {"icm", "lmc"}
 
 
 def test_cross_validate_cokriging_icm_stays_stable_with_extra_secondary_samples() -> None:

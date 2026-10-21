@@ -27,6 +27,8 @@ def co_kriging(
     radius: float | None = None,
     max_neighbors: int = 40,
     min_neighbors: int = 3,
+    max_colocation_dist: float | None = None,
+    max_secondary_neighbors: int | None = None,
 ) -> np.ndarray:
     """Fit cokriging and estimate ``targets`` values in one call.
 
@@ -55,6 +57,14 @@ def co_kriging(
         primary variogram (``range / 3`` with 10 000 or more points).
     max_neighbors, min_neighbors : int
         Primary neighbor bounds used by the local search.
+    max_colocation_dist : float or None, default None
+        Distance within which a primary sample is paired with its nearest
+        secondary point to estimate the cross-covariances; ``None`` pairs
+        only exactly coincident locations. Heterotopic secondaries, such as
+        rasters, need a distance (e.g. half the cell diagonal).
+    max_secondary_neighbors : int or None, default None
+        ``"icm"``/``"lmc"`` only: maximum neighbors of each secondary per
+        target; ``None`` uses ``max_neighbors``.
 
     Returns
     -------
@@ -68,6 +78,8 @@ def co_kriging(
             max_neighbors=max_neighbors,
             min_neighbors=min_neighbors,
             model_values=model_values,
+            max_colocation_dist=max_colocation_dist,
+            max_secondary_neighbors=max_secondary_neighbors,
         )
         .fit(x0, y0, z0, secondaries)
         .interpolate(targets)

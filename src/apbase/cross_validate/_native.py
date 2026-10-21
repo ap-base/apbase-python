@@ -116,6 +116,7 @@ def run_cokriging_cross_validate(
     lmc_coefficients: np.ndarray,
     radius: float,
     max_neighbors: int,
+    max_secondary_neighbors: int,
     min_neighbors: int,
     n_threads: int,
     *,
@@ -167,6 +168,7 @@ def run_cokriging_cross_validate(
             _as_float64_contiguous(lmc_coefficients),
             float(radius),
             int(max_neighbors),
+            int(max_secondary_neighbors),
             int(min_neighbors),
             int(n_threads),
         )

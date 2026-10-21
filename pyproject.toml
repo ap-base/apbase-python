@@ -12,13 +12,40 @@ description = "High-performance automated map-generation pipeline for precision 
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
+keywords = [
+  "geostatistics",
+  "kriging",
+  "cokriging",
+  "idw",
+  "interpolation",
+  "agriculture",
+  "precision-agriculture",
+]
 classifiers = [
+  "Intended Audience :: Science/Research",
   "License :: OSI Approved :: Apache Software License",
+  "Operating System :: MacOS",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Fortran",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering :: GIS",
+  "Topic :: Scientific/Engineering :: Mathematics",
 ]
 dependencies = [
   "numpy>=2.0",
   "pyproj>=3.6,<4.0",
   "shapely>=2.0,<3.0",
+]
+
+[project.optional-dependencies]
+test = [
+  "geopandas",
+  "pytest",
 ]
 
 [project.urls]

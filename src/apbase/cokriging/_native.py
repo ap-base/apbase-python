@@ -162,6 +162,7 @@ def run_co_kriging_icm(
     secondary_offset: np.ndarray,
     radius: float,
     max_neighbors: int,
+    max_secondary_neighbors: int,
     min_neighbors: int,
     n_threads: int,
 ) -> tuple[np.ndarray, int]:
@@ -184,6 +185,7 @@ def run_co_kriging_icm(
             _as_int32_contiguous(secondary_offset),
             float(radius),
             int(max_neighbors),
+            int(max_secondary_neighbors),
             int(min_neighbors),
             int(n_threads),
         )
@@ -260,6 +262,7 @@ def run_co_kriging_lmc(
     secondary_offset: np.ndarray,
     radius: float,
     max_neighbors: int,
+    max_secondary_neighbors: int,
     min_neighbors: int,
     n_threads: int,
 ) -> tuple[np.ndarray, int]:
@@ -281,6 +284,7 @@ def run_co_kriging_lmc(
             _as_int32_contiguous(secondary_offset),
             float(radius),
             int(max_neighbors),
+            int(max_secondary_neighbors),
             int(min_neighbors),
             int(n_threads),
         )

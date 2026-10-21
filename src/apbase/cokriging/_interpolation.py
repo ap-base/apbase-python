@@ -13,7 +13,7 @@ from apbase.common.arrays import (
     filter_finite_xyz,
     validate_same_size_xyz,
 )
-from apbase.common.exceptions import COKRIGING_STATUS_ERRORS, raise_status_error
+from apbase.common.exceptions import COKRIGING_STATUS_ERRORS, ValidationError, raise_status_error
 from apbase.common.validation import require_neighbor_bounds
 from apbase.config import (
     resolve_max_lmc_structures_ceiling,
@@ -44,7 +44,15 @@ SecondaryInput = (
 
 
 class _NoCollocatedSamplesError(ValueError):
-    """A secondary shares too few sample locations with the primary for collocated cokriging."""
+    """A secondary has too few samples paired with the primary to estimate its cross-covariance."""
+
+
+def _no_collocated_samples_message(name: str) -> str:
+    return (
+        f"secondary {name!r} has too few samples paired with the primary samples to estimate its "
+        "cross-covariance; for heterotopic data such as a raster, set max_colocation_dist (e.g. half "
+        "the cell diagonal) to pair each primary sample with its nearest secondary point"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,8 +98,7 @@ class CoKriging:
         ``method="collocated"``, a secondary with no value within this
         radius of a target is left out of that target's system (none left:
         ordinary kriging of the primary); ``"icm"``/``"lmc"`` search each
-        variable's neighborhood independently, so heterotopic secondaries
-        work directly.
+        variable's neighborhood independently.
     max_neighbors, min_neighbors:
         Primary neighbor bounds, same meaning as :class:`~apbase.kriging.
         Kriging`.
@@ -102,6 +109,15 @@ class CoKriging:
         Optional pre-fitted coregionalization model vector,
         ``"collocated"`` only. If provided, :meth:`fit` skips fitting the
         primary variogram and per-secondary cross-variograms.
+    max_colocation_dist:
+        Distance within which a primary sample is paired with its nearest
+        secondary point to estimate the cross-covariances. ``None`` pairs
+        only exactly coincident locations; heterotopic secondaries, such as
+        rasters, need a distance (e.g. half the cell diagonal).
+    max_secondary_neighbors:
+        ``"icm"``/``"lmc"`` only: maximum neighbors of each secondary per
+        target. ``None`` uses ``max_neighbors``. Dense secondaries need far
+        fewer than the primary, since the nearest ones screen the rest.
     """
 
     __slots__ = (
@@ -120,6 +136,8 @@ class CoKriging:
         "_secondary_z",
         "_secondary_offset",
         "_n_structures",
+        "_max_colocation_dist",
+        "_max_secondary_neighbors",
         "_fit",
     )
 
@@ -132,6 +150,8 @@ class CoKriging:
         min_neighbors: int = 3,
         n_structures: int = 2,
         model_values: ArrayLike | None = None,
+        max_colocation_dist: float | None = None,
+        max_secondary_neighbors: int | None = None,
     ) -> None:
         if method not in _METHODS:
             raise ValueError(f"method must be one of {_METHODS}")
@@ -148,9 +168,24 @@ class CoKriging:
             None if model_values is None else self._normalize_model_values(model_values)
         )
 
+        self._max_colocation_dist = None if max_colocation_dist is None else float(max_colocation_dist)
+        self._max_secondary_neighbors = (
+            None if max_secondary_neighbors is None else int(max_secondary_neighbors)
+        )
+
         self._validate_config(self._max_neighbors, self._min_neighbors)
         if self.radius is not None and (not np.isfinite(self.radius) or self.radius <= 0.0):
             raise ValueError("radius must be finite and greater than zero")
+        if self._max_colocation_dist is not None and (
+            not np.isfinite(self._max_colocation_dist) or self._max_colocation_dist <= 0.0
+        ):
+            raise ValueError("max_colocation_dist must be None or finite and greater than zero")
+        if self._max_secondary_neighbors is not None:
+            if self._max_secondary_neighbors <= 0:
+                raise ValidationError("max_secondary_neighbors must be greater than zero")
+            max_neighbors_ceiling = resolve_max_neighbors_ceiling()
+            if self._max_secondary_neighbors > max_neighbors_ceiling:
+                raise ValidationError(f"max_secondary_neighbors must be <= {max_neighbors_ceiling}")
 
         self._x0: np.ndarray | None = None
         self._y0: np.ndarray | None = None
@@ -218,6 +253,29 @@ class CoKriging:
             Structure count used only when ``method="lmc"``.
         """
         return self._n_structures
+
+    @property
+    def max_colocation_dist(self) -> float | None:
+        """Pairing distance between primary samples and secondary points.
+
+        Returns
+        -------
+        float or None
+            Distance used to estimate the cross-covariances, or ``None``
+            for exactly coincident locations only.
+        """
+        return self._max_colocation_dist
+
+    @property
+    def max_secondary_neighbors(self) -> int | None:
+        """Maximum neighbors of each secondary per target (ICM and LMC).
+
+        Returns
+        -------
+        int or None
+            Explicit limit, or ``None`` to use ``max_neighbors``.
+        """
+        return self._max_secondary_neighbors
 
     @property
     def n_threads(self) -> int:
@@ -435,6 +493,9 @@ class CoKriging:
                 x0_valid, y0_valid, z0_valid, names, secondary_arrays, n_lags, max_pairs, max_distance
             )
         elif self._method == "icm":
+            self._secondary_rhos(
+                x0_valid, y0_valid, z0_valid, names, secondary_arrays, n_lags, max_pairs, max_distance
+            )
             self._fit_icm(
                 x0_valid, y0_valid, z0_valid, secondary_x, secondary_y, secondary_z, secondary_offset,
                 n_lags, max_pairs, max_distance,
@@ -443,6 +504,9 @@ class CoKriging:
             max_structures = resolve_max_lmc_structures_ceiling()
             if self._n_structures > max_structures:
                 raise ValueError(f"n_structures must be <= {max_structures}")
+            self._secondary_rhos(
+                x0_valid, y0_valid, z0_valid, names, secondary_arrays, n_lags, max_pairs, max_distance
+            )
             self._fit_lmc(
                 x0_valid, y0_valid, z0_valid, secondary_x, secondary_y, secondary_z, secondary_offset,
                 n_lags, max_pairs, max_distance,
@@ -473,19 +537,9 @@ class CoKriging:
             primary_variogram = Variogram(n_lags=n_lags, max_pairs=max_pairs, max_distance=max_distance).fit(
                 x0_valid, y0_valid, z0_valid
             )
-            rhos = []
-            for name, (xu, yu, zu) in zip(names, secondary_arrays, strict=True):
-                cross = CrossVariogram(n_lags=n_lags, max_pairs=max_pairs, max_distance=max_distance).fit(
-                    x0_valid, y0_valid, z0_valid, xu, yu, zu
-                )
-                if not np.isfinite(cross.rho):
-                    raise _NoCollocatedSamplesError(
-                        f"secondary {name!r} has too few collocated samples with the primary to "
-                        "estimate its correlation; collocated cokriging needs secondary values at "
-                        "the primary sample locations (use method='icm' or 'lmc' for "
-                        "heterotopic data)"
-                    )
-                rhos.append(cross.rho)
+            rhos = self._secondary_rhos(
+                x0_valid, y0_valid, z0_valid, names, secondary_arrays, n_lags, max_pairs, max_distance
+            )
             model_values = np.concatenate(
                 [primary_variogram.model_values, np.asarray(rhos, dtype=np.float64)]
             )
@@ -502,6 +556,35 @@ class CoKriging:
         self._fit = _CollocatedFit(model_values=model_values, rhos=model_values[5:])
         self._primary_model_params = primary_model_params
 
+    def _secondary_rhos(
+        self,
+        x0_valid: np.ndarray,
+        y0_valid: np.ndarray,
+        z0_valid: np.ndarray,
+        names: list[str],
+        secondary_arrays: list[tuple[np.ndarray, np.ndarray, np.ndarray]],
+        n_lags: int,
+        max_pairs: int,
+        max_distance: float,
+    ) -> list[float]:
+        """Correlation of each secondary with the primary over the paired samples.
+
+        Raises the "too few paired samples" error for a secondary that cannot be
+        paired: every method needs its cross-covariance with the primary.
+        """
+        rhos = []
+        for name, (xu, yu, zu) in zip(names, secondary_arrays, strict=True):
+            cross = CrossVariogram(
+                n_lags=n_lags,
+                max_pairs=max_pairs,
+                max_distance=max_distance,
+                max_colocation_dist=self._max_colocation_dist,
+            ).fit(x0_valid, y0_valid, z0_valid, xu, yu, zu)
+            if not np.isfinite(cross.rho):
+                raise _NoCollocatedSamplesError(_no_collocated_samples_message(name))
+            rhos.append(cross.rho)
+        return rhos
+
     def _fit_icm(
         self,
         x0_valid: np.ndarray,
@@ -517,7 +600,7 @@ class CoKriging:
     ) -> None:
         model_id, model_range, nugget_matrix, sill_matrix, status = run_fit_icm_model(
             x0_valid, y0_valid, z0_valid, secondary_x, secondary_y, secondary_z, secondary_offset,
-            n_lags, max_pairs, max_distance, 0.0, self.n_threads,
+            n_lags, max_pairs, max_distance, self._colocation_dist_value(), self.n_threads,
         )
         if status != 0:
             raise_status_error(status, COKRIGING_STATUS_ERRORS, "native ICM fit failed")
@@ -549,7 +632,8 @@ class CoKriging:
     ) -> None:
         model_id, structure_ranges, coefficient_matrices, status = run_fit_lmc_model(
             x0_valid, y0_valid, z0_valid, secondary_x, secondary_y, secondary_z, secondary_offset,
-            self._n_structures, n_lags, max_pairs, max_distance, 0.0, self.n_threads,
+            self._n_structures, n_lags, max_pairs, max_distance, self._colocation_dist_value(),
+            self.n_threads,
         )
         if status != 0:
             raise_status_error(status, COKRIGING_STATUS_ERRORS, "native LMC fit failed")
@@ -610,7 +694,8 @@ class CoKriging:
                 self._x0, self._y0, self._z0, target_x, target_y,
                 self._fit.model_id, self._fit.model_range, self._fit.nugget_matrix, self._fit.sill_matrix,
                 self._secondary_x, self._secondary_y, self._secondary_z, self._secondary_offset,
-                radius_value, self.max_neighbors, self.min_neighbors, self.n_threads,
+                radius_value, self.max_neighbors, self._secondary_neighbor_limit(), self.min_neighbors,
+                self.n_threads,
             )
         else:
             assert isinstance(self._fit, _LMCFit)
@@ -618,7 +703,8 @@ class CoKriging:
                 self._x0, self._y0, self._z0, target_x, target_y,
                 self._fit.model_id, self._fit.structure_ranges, self._fit.coefficient_matrices,
                 self._secondary_x, self._secondary_y, self._secondary_z, self._secondary_offset,
-                radius_value, self.max_neighbors, self.min_neighbors, self.n_threads,
+                radius_value, self.max_neighbors, self._secondary_neighbor_limit(), self.min_neighbors,
+                self.n_threads,
             )
         if status != 0:
             raise_status_error(status, COKRIGING_STATUS_ERRORS, "native cokriging execution failed")
@@ -683,6 +769,15 @@ class CoKriging:
     def _require_fitted(self) -> None:
         if self._fit is None:
             raise ValueError("call fit(x0, y0, z0, secondaries) before interpolate(targets)")
+
+    def _colocation_dist_value(self) -> float:
+        # The native pairing treats 0 as "exactly coincident only".
+        return 0.0 if self._max_colocation_dist is None else self._max_colocation_dist
+
+    def _secondary_neighbor_limit(self) -> int:
+        if self._max_secondary_neighbors is None:
+            return self._max_neighbors
+        return self._max_secondary_neighbors
 
     def _resolve_radius(
         self, primary_model_params: dict[str, float | int | str], n_points: int
