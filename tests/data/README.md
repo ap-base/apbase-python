@@ -31,6 +31,18 @@ packages): 155 points, heavy metal concentrations plus continuous covariates
   (CRAN mirror of the `sp` R package, GPL (>= 2)).
 - Regenerate: same `rdata` procedure as above.
 
+## meuse_grid.csv
+
+The official 40 m Meuse prediction grid: 3103 cell centers with columns
+`x, y, dist, ffreq, soil`, in the same Dutch RD coordinates as `meuse.csv`.
+Its `dist` column is the raster secondary of the heterotopic cokriging test
+(no cell center coincides with a sample).
+
+- Source: `meuse.grid` object inside
+  `https://raw.githubusercontent.com/cran/sp/master/data/meuse.grid.rda`
+  (CRAN mirror of the `sp` R package, GPL (>= 2)).
+- Regenerate: same `rdata` procedure as above.
+
 ## walker_sample.csv / walker_exhaustive.csv
 
 Walker Lake dataset from Isaaks & Srivastava (1989), *Applied Geostatistics*,

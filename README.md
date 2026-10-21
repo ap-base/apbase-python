@@ -25,7 +25,11 @@ Full documentation: https://apbase.io
 pip install apbase
 ```
 
-Development version:
+PyPI has wheels for Linux (x86_64), macOS (arm64 and x86_64) and Windows
+(x86_64), for Python 3.12 to 3.14.
+
+Development version, Linux x86_64 with Python 3.14 only (the repository carries
+the compiled native module for that platform alone):
 
 ```bash
 pip install git+https://github.com/ap-base/apbase-python.git
@@ -59,6 +63,47 @@ Functional shortcut:
 result = apbase.create_map(x, y, z, resolution=10.0)
 ```
 
+## Cokriging
+
+When secondary variables correlated with the target one are available, such as
+elevation, distance to a river or a sensor reading at the soil samples,
+`apbase.cokriging` uses them in the estimate. Three methods are available:
+collocated (Markov-1, the default), ICM (intrinsic coregionalization model) and
+LMC (linear model of coregionalization). `apbase.cross_variogram` screens the
+candidates first: a Fisher z-test for the correlation and a Cauchy-Schwarz check
+that the cross-variogram is admissible.
+
+```python
+from apbase.cokriging import co_kriging
+from apbase.cross_variogram import screen_secondary_variables
+
+# candidates: {"name": (x, y, values), ...} of possible secondary variables.
+screening = screen_secondary_variables(x, y, z, candidates)
+
+estimates = co_kriging(x, y, z, screening.selected, targets, method="collocated")
+```
+
+A secondary that does not share the primary's sample locations, such as a
+raster (NDVI, elevation, apparent electrical conductivity), needs
+`max_colocation_dist`: each primary sample is paired with its nearest secondary
+point within that distance (half the cell diagonal for a grid) to estimate the
+cross-covariances. For dense secondaries, `max_secondary_neighbors` (ICM and
+LMC) keeps only the nearest ones; 8 to 16 is usually enough. Cokriging assumes
+a roughly linear relation between the variables, so transform a secondary that
+does not have one (for example, the square root of a distance).
+
+```python
+estimates = co_kriging(
+    x, y, z, {"ndvi": (raster_x, raster_y, ndvi)}, targets,
+    method="icm", max_colocation_dist=28.3, max_secondary_neighbors=8,  # 40 m raster
+)
+```
+
+`Map` chooses between IDW and ordinary kriging only; cokriging is called
+directly. The test suite runs it on three published geostatistics datasets,
+Jura, Meuse and Walker Lake, including the Meuse 40 m grid as a raster
+secondary (see `tests/data/README.md`).
+
 ## Main API
 
 - `apbase.Map`: automated map pipeline.
@@ -66,8 +111,8 @@ result = apbase.create_map(x, y, z, resolution=10.0)
 - `apbase.config`: runtime configuration, including OpenMP thread count.
 
 Advanced modules are available under `apbase.filtering`, `apbase.grid`,
-`apbase.variogram`, `apbase.idw`, `apbase.kriging`, `apbase.cokriging`, and
-`apbase.cross_validate`.
+`apbase.variogram`, `apbase.idw`, `apbase.kriging`, `apbase.cokriging`,
+`apbase.cross_variogram`, and `apbase.cross_validate`.
 
 ## Data Requirements
 
@@ -93,11 +138,23 @@ import apbase
 apbase.config["n_threads"] = 4
 ```
 
+## Contributing
+
+See [CONTRIBUTING.md](https://github.com/ap-base/apbase-python/blob/main/CONTRIBUTING.md). Questions and ideas go to
+[Discussions](https://github.com/ap-base/apbase-python/discussions); security
+problems follow [SECURITY.md](https://github.com/ap-base/apbase-python/blob/main/SECURITY.md).
+
+## Citation
+
+If you use APbase in your work, please cite it with the metadata in
+[CITATION.cff](https://github.com/ap-base/apbase-python/blob/main/CITATION.cff) (the "Cite this repository" button on GitHub).
+
 ## Links
 
 - Documentation: https://apbase.io
 - Source: https://github.com/ap-base/apbase-python
 - Issues: https://github.com/ap-base/apbase-python/issues
+- Changelog: https://github.com/ap-base/apbase-python/blob/main/CHANGELOG.md
 
 ## License
 

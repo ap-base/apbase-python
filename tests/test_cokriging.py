@@ -729,15 +729,82 @@ if __name__ == "__main__":
     test_cokriging_rejects_invalid_method()
 
 
-def test_collocated_fit_rejects_secondary_without_collocated_pairs() -> None:
+@pytest.mark.parametrize("method", ["collocated", "icm", "lmc"])
+def test_fit_rejects_secondary_without_paired_samples(method: str) -> None:
     rng = np.random.default_rng(0)
     x0, y0 = rng.uniform(0, 1000, 120), rng.uniform(0, 1000, 120)
     z0 = np.sin(x0 / 150) + rng.normal(0, 0.1, 120)
     xu, yu = rng.uniform(0, 1000, 300), rng.uniform(0, 1000, 300)
     zu = np.sin(xu / 150) + rng.normal(0, 0.1, 300)
 
-    with pytest.raises(ValueError, match="'ec'.*collocated"):
-        CoKriging(method="collocated").fit(x0, y0, z0, {"ec": (xu, yu, zu)})
+    with pytest.raises(ValueError, match="'ec'.*max_colocation_dist"):
+        CoKriging(method=method).fit(x0, y0, z0, {"ec": (xu, yu, zu)})
+
+
+def _raster_secondary(rng: np.random.Generator) -> tuple[np.ndarray, ...]:
+    """120 scattered primary samples and a smooth 20 m raster secondary."""
+    x0, y0 = rng.uniform(0, 1000, 120), rng.uniform(0, 1000, 120)
+    z0 = np.sin(x0 / 150) + rng.normal(0, 0.1, 120)
+    gx, gy = np.meshgrid(np.arange(10.0, 1000.0, 20.0), np.arange(10.0, 1000.0, 20.0))
+    xu, yu = gx.ravel(), gy.ravel()
+    return x0, y0, z0, xu, yu, np.sin(xu / 150)
+
+
+@pytest.mark.parametrize("method", ["collocated", "icm", "lmc"])
+def test_fit_pairs_raster_secondary_within_max_colocation_dist(method: str) -> None:
+    rng = np.random.default_rng(0)
+    x0, y0, z0, xu, yu, zu = _raster_secondary(rng)
+    targets = np.column_stack([rng.uniform(0, 1000, 200), rng.uniform(0, 1000, 200)])
+
+    cokriging = CoKriging(method=method, max_colocation_dist=15.0).fit(x0, y0, z0, {"ec": (xu, yu, zu)})
+    estimates = cokriging.interpolate(targets)
+
+    assert np.isfinite(estimates).all()
+    params = cokriging.model_params
+    if method == "collocated":
+        cross = params["rho"]["ec"]
+    elif method == "icm":
+        cross = params["sill_matrix"][0, 1]
+    else:
+        cross = params["coefficient_matrices"][1:, 0, 1].sum()
+    assert cross > 0.0
+
+
+@pytest.mark.parametrize("method", ["icm", "lmc"])
+def test_max_secondary_neighbors_defaults_to_max_neighbors(method: str) -> None:
+    rng = np.random.default_rng(0)
+    x0, y0, z0, xu, yu, zu = _raster_secondary(rng)
+    targets = np.column_stack([rng.uniform(0, 1000, 200), rng.uniform(0, 1000, 200)])
+    secondaries = {"ec": (xu, yu, zu)}
+
+    default = CoKriging(method=method, max_colocation_dist=15.0).fit(x0, y0, z0, secondaries)
+    explicit = CoKriging(method=method, max_colocation_dist=15.0, max_secondary_neighbors=40).fit(
+        x0, y0, z0, secondaries
+    )
+    fewer = CoKriging(method=method, max_colocation_dist=15.0, max_secondary_neighbors=8).fit(
+        x0, y0, z0, secondaries
+    )
+
+    np.testing.assert_array_equal(default.interpolate(targets), explicit.interpolate(targets))
+    fewer_estimates = fewer.interpolate(targets)
+    assert np.isfinite(fewer_estimates).all()
+    assert not np.array_equal(fewer_estimates, default.interpolate(targets))
+
+
+def test_cokriging_validates_colocation_and_secondary_neighbor_options() -> None:
+    for value in (0.0, -1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="max_colocation_dist must be None or finite"):
+            CoKriging(max_colocation_dist=value)
+    with pytest.raises(ValueError, match="max_secondary_neighbors must be greater than zero"):
+        CoKriging(method="icm", max_secondary_neighbors=0)
+    with pytest.raises(ValueError, match="max_secondary_neighbors must be <="):
+        CoKriging(method="icm", max_secondary_neighbors=1_000_000)
+
+    cokriging = CoKriging(method="icm", max_colocation_dist=5.0, max_secondary_neighbors=8)
+    assert cokriging.max_colocation_dist == 5.0
+    assert cokriging.max_secondary_neighbors == 8
+    assert CoKriging().max_colocation_dist is None
+    assert CoKriging().max_secondary_neighbors is None
 
 
 def test_icm_fit_returns_psd_coregionalization_matrices() -> None:

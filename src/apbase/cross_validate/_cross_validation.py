@@ -335,6 +335,8 @@ def cross_validate_cokriging(
     max_neighbors: int = 40,
     min_neighbors: int = 3,
     n_structures: int = 2,
+    max_colocation_dist: float | None = None,
+    max_secondary_neighbors: int | None = None,
 ) -> CokrigingCrossValidationResult:
     """Leave-one-out cross-validate collocated, ICM, and LMC cokriging together.
 
@@ -367,6 +369,9 @@ def cross_validate_cokriging(
     n_structures:
         Number of nested LMC structures (S), see
         :class:`~apbase.cokriging.CoKriging`.
+    max_colocation_dist, max_secondary_neighbors:
+        Pairing distance for the cross-covariances and secondary neighbor
+        limit (ICM and LMC), see :class:`~apbase.cokriging.CoKriging`.
 
     Returns
     -------
@@ -376,10 +381,10 @@ def cross_validate_cokriging(
         predictions and the held-out actual values (identical across
         methods, evaluated on the same held-out samples). A method whose
         model cannot be fitted is left out instead of failing the call:
-        collocated cokriging when a secondary has too few samples at the
-        primary locations, and ICM or LMC when the fit is rejected as
-        non-positive-semidefinite or invalid. The error is raised only when
-        no method can be fitted.
+        any method when a secondary has too few samples paired with the
+        primary (see ``max_colocation_dist``), and ICM or LMC when the fit is
+        rejected as non-positive-semidefinite or invalid. The error is raised
+        only when no method can be fitted.
 
     Raises
     ------
@@ -416,6 +421,8 @@ def cross_validate_cokriging(
             fitted[method] = CoKriging(
                 method=method, radius=radius, max_neighbors=max_neighbors, min_neighbors=min_neighbors,
                 n_structures=n_structures if method == "lmc" else 2,
+                max_colocation_dist=max_colocation_dist,
+                max_secondary_neighbors=max_secondary_neighbors,
             ).fit(x0, y0, z0, secondaries)
         except (
             _NoCollocatedSamplesError,
@@ -483,7 +490,7 @@ def cross_validate_cokriging(
         x0_valid, y0_valid, z0_valid, sample_idx,
         secondary_x, secondary_y, secondary_z, secondary_offset,
         collocated_model, *icm_args, *lmc_args,
-        radius_value, max_neighbors, min_neighbors, n_threads,
+        radius_value, max_neighbors, reference._secondary_neighbor_limit(), min_neighbors, n_threads,
         run_collocated=collocated is not None,
         run_icm=icm is not None,
         run_lmc=lmc is not None,

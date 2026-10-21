@@ -10,9 +10,10 @@ RMSE assertions here are regression freezes (np.isclose against an observed
 value, not a hardcoded "cokriging must win"): the well-documented cokriging
 "screening effect" (Goovaerts 1997) means collocated/ICM cokriging do not
 reliably beat plain ordinary kriging when the secondary is only sampled at
-(or near) the same locations as the primary, which is the case for every
-dataset available here. Only the Jura/LMC/Pb combination below demonstrates
-a genuine (if modest) improvement.
+(or near) the same locations as the primary, which is the case for Jura,
+Walker Lake and the Meuse samples. The Jura/LMC/Pb combination and the Meuse
+raster secondary (sqrt(dist) on the official 40 m grid) below demonstrate a
+genuine (if modest) improvement.
 """
 
 from __future__ import annotations
@@ -215,3 +216,113 @@ def test_walker_lake_icm_on_sparse_subsample_matches_ordinary_kriging() -> None:
     assert not np.isnan(icm_pred).any()
     assert _rmse(ok_pred, truth) == pytest.approx(222.0783738847038, rel=0.05)
     assert _rmse(icm_pred, truth) == pytest.approx(225.72232223151371, rel=0.05)
+
+
+_MEUSE_COLOCATION_DIST = 28.3  # half the diagonal of a 40 m cell
+_MEUSE_RADIUS = 400.0
+
+
+def test_meuse_cokriging_with_raster_secondary_regression() -> None:
+    """Heterotopic cokriging with a raster secondary.
+
+    log(zinc) at 110 Meuse samples, sqrt(dist) on the official 40 m grid
+    (3103 cells, none at a sample location) paired within half the cell
+    diagonal, 45 held-out samples. Regression freeze at rel=0.05; on this
+    split every method stays below ordinary kriging.
+    """
+    meuse = _load("meuse.csv")
+    grid = _load("meuse_grid.csv")
+    x = meuse["x"].astype(np.float64)
+    y = meuse["y"].astype(np.float64)
+    z = np.log(meuse["zinc"].astype(np.float64))
+    train = np.random.default_rng(0).choice(z.size, size=110, replace=False)
+    test = np.setdiff1d(np.arange(z.size), train)
+    targets = np.column_stack([x[test], y[test]])
+    secondaries = {
+        "sqrt_dist": (
+            grid["x"].astype(np.float64),
+            grid["y"].astype(np.float64),
+            np.sqrt(grid["dist"].astype(np.float64)),
+        )
+    }
+
+    ok_pred = ordinary_kriging(
+        x[train], y[train], z[train], targets, radius=_MEUSE_RADIUS, max_neighbors=40, min_neighbors=3
+    )
+    ok_rmse = _rmse(ok_pred, z[test])
+    assert ok_rmse == pytest.approx(0.3215238376477924, rel=0.05)
+
+    for method, max_secondary_neighbors, expected in (
+        ("collocated", None, 0.31105033389900477),
+        ("icm", None, 0.2948833593039993),
+        ("icm", 8, 0.2843351846133008),
+        ("lmc", None, 0.29474084618830976),
+        ("lmc", 8, 0.28243526180634404),
+    ):
+        pred = co_kriging(
+            x[train], y[train], z[train], secondaries, targets,
+            method=method, radius=_MEUSE_RADIUS, max_neighbors=40, min_neighbors=3,
+            max_colocation_dist=_MEUSE_COLOCATION_DIST, max_secondary_neighbors=max_secondary_neighbors,
+        )
+        assert np.isfinite(pred).all(), method
+        value = _rmse(pred, z[test])
+        assert value == pytest.approx(expected, rel=0.05), (method, max_secondary_neighbors, value)
+        assert value < ok_rmse, (method, max_secondary_neighbors)
+
+
+def test_meuse_icm_with_raster_secondary_covers_the_whole_grid() -> None:
+    """Default radius on the full grid: every cell gets a value (dense raster
+    neighborhoods used to leave the block system singular) and the fitted
+    cross-covariance carries the negative zinc/distance correlation."""
+    from apbase.cokriging import CoKriging
+
+    meuse = _load("meuse.csv")
+    grid = _load("meuse_grid.csv")
+    gx, gy = grid["x"].astype(np.float64), grid["y"].astype(np.float64)
+    cokriging = CoKriging(method="icm", max_colocation_dist=_MEUSE_COLOCATION_DIST).fit(
+        meuse["x"].astype(np.float64),
+        meuse["y"].astype(np.float64),
+        np.log(meuse["zinc"].astype(np.float64)),
+        {"sqrt_dist": (gx, gy, np.sqrt(grid["dist"].astype(np.float64)))},
+    )
+
+    pred = cokriging.interpolate(np.column_stack([gx, gy]))
+
+    assert np.isfinite(pred).all()
+    assert cokriging.model_params["sill_matrix"][0, 1] < 0.0
+
+
+@pytest.mark.parametrize("radius", [100.0, 400.0])
+def test_gaussian_cokriging_on_noise_free_raster_stays_within_the_data(radius: float) -> None:
+    """A gaussian model without nugget on dense raster pixels used to leave the
+    ICM/LMC block systems singular (NaN) or give them exploding weights
+    (estimates in the thousands for log(zinc) between 4.7 and 7.5). With the
+    kernels' gaussian nugget floor every estimate stays within the data range.
+    The model is the one the fit produced before heterotopic pairing existed:
+    no cross-covariance and no secondary nugget."""
+    from apbase.cokriging._native import run_co_kriging_icm, run_co_kriging_lmc
+
+    meuse = _load("meuse.csv")
+    grid = _load("meuse_grid.csv")
+    x = meuse["x"].astype(np.float64)
+    y = meuse["y"].astype(np.float64)
+    z = np.log(meuse["zinc"].astype(np.float64))
+    gx, gy = grid["x"].astype(np.float64), grid["y"].astype(np.float64)
+    dist = grid["dist"].astype(np.float64)
+    secondary_z = z.mean() + (dist - dist.mean()) * (z.std() / dist.std())
+    offset = np.array([0, gx.size], dtype=np.int32)
+    nugget = np.array([[0.22388, 0.0], [0.0, 0.0]])
+    sill = np.array([[0.37619, 0.0], [0.0, 0.63062]])
+
+    icm, icm_status = run_co_kriging_icm(
+        x, y, z, gx, gy, 3.0, 966.3674, nugget, sill, gx, gy, secondary_z, offset, radius, 40, 40, 3, 1
+    )
+    lmc, lmc_status = run_co_kriging_lmc(
+        x, y, z, gx, gy, 3.0, np.array([966.3674]), np.stack([nugget, sill]),
+        gx, gy, secondary_z, offset, radius, 40, 40, 3, 1,
+    )
+
+    for status, pred in ((icm_status, icm), (lmc_status, lmc)):
+        assert status == 0
+        assert np.isfinite(pred).all()
+        assert z.min() - 0.5 < pred.min() and pred.max() < z.max() + 0.5
