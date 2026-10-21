@@ -6,6 +6,8 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-21
+
 ### Added
 
 - Cokriging section in the README and `apbase.cross_variogram` in the module
@@ -36,6 +38,10 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Behavior change:** ICM and LMC cokriging (and `cross_validate_cokriging`)
+  raise a `ValueError` for a secondary without samples paired with the primary,
+  where they used to fit a zero cross-covariance; pass `max_colocation_dist` for
+  heterotopic secondaries (see Fixed).
 - The README states that installing from git works only on Linux x86_64 with
   Python 3.14; other platforms install the wheels from PyPI.
 
@@ -100,7 +106,8 @@ project uses [Semantic Versioning](https://semver.org/).
   (collocated, ICM and LMC), `cross_variogram` and `cross_validate`, backed by
   native Fortran kernels with OpenMP.
 
-[Unreleased]: https://github.com/ap-base/apbase-python/compare/0.1.3...HEAD
+[Unreleased]: https://github.com/ap-base/apbase-python/compare/0.2.0...HEAD
+[0.2.0]: https://github.com/ap-base/apbase-python/compare/0.1.3...0.2.0
 [0.1.3]: https://github.com/ap-base/apbase-python/compare/0.1.2...0.1.3
 [0.1.2]: https://github.com/ap-base/apbase-python/compare/0.1.1...0.1.2
 [0.1.1]: https://github.com/ap-base/apbase-python/compare/0.1.0...0.1.1
